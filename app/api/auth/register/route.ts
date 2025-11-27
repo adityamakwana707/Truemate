@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
-import bcrypt from "bcryptjs"
+import { connectToDatabase } from "@/lib/mongoose"
+import { User } from "@/lib/models"
+import type { IUser } from "@/lib/models"
 
 export async function POST(request: NextRequest) {
   try {
@@ -29,42 +31,78 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // In a real application, you would:
-    // 1. Check if user already exists in database
-    // 2. Hash the password
-    // 3. Save to database
-    // 4. Send verification email, etc.
+    // Connect to database
+    await connectToDatabase()
 
-    // For now, we'll simulate the process
-    const hashedPassword = await bcrypt.hash(password, 12)
-    
-    // Simulate saving to database
-    const newUser = {
-      id: Date.now().toString(),
-      name,
-      email,
-      password: hashedPassword,
-      createdAt: new Date().toISOString(),
-      apiKey: `api-${Date.now()}`
+    // Check if user already exists
+    const existingUser = await User.findOne({ email: email.toLowerCase() })
+    if (existingUser) {
+      return NextResponse.json(
+        { error: "User with this email already exists" },
+        { status: 409 }
+      )
     }
 
-    // In production, save newUser to your database
-    console.log("New user registered:", { id: newUser.id, name, email })
+    // Create new user (password will be hashed automatically by the pre-save hook)
+    const newUser = new User({
+      name: name.trim(),
+      email: email.toLowerCase().trim(),
+      password
+    }) as IUser
+
+    // Save user to database
+    await newUser.save()
+    
+    // Remove password from response for security
+    const userResponse = {
+      id: newUser._id.toString(),
+      name: newUser.name,
+      email: newUser.email
+    }
+
+    console.log("New user registered:", { 
+      id: newUser._id, 
+      name: newUser.name, 
+      email: newUser.email 
+    })
 
     return NextResponse.json(
       { 
         message: "User registered successfully",
-        user: {
-          id: newUser.id,
-          name: newUser.name,
-          email: newUser.email
-        }
+        user: userResponse
       },
       { status: 201 }
     )
 
   } catch (error) {
     console.error("Registration error:", error)
+    
+    // Handle mongoose validation errors
+    if (error instanceof Error && error.name === 'ValidationError') {
+      console.error("Validation error details:", error.message)
+      return NextResponse.json(
+        { error: "Invalid input data", details: error.message },
+        { status: 400 }
+      )
+    }
+
+    // Handle duplicate key errors (MongoDB duplicate email)
+    if (error instanceof Error && 'code' in error && (error as any).code === 11000) {
+      return NextResponse.json(
+        { error: "User with this email already exists" },
+        { status: 409 }
+      )
+    }
+
+    // Handle other mongoose errors
+    if (error instanceof Error && error.name === 'MongoError') {
+      console.error("MongoDB error:", error.message)
+      return NextResponse.json(
+        { error: "Database error occurred" },
+        { status: 500 }
+      )
+    }
+
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }
