@@ -2,6 +2,7 @@ import type React from "react"
 import type { Metadata } from "next"
 
 import "./globals.css"
+import "../styles/loader.css"
 
 import { ThemeProvider } from "@/components/theme-provider"
 import { AuthProvider } from "@/components/auth-provider"
@@ -16,7 +17,10 @@ const geistMono = Geist_Mono({ subsets: ["latin"], weight: ["400", "500", "600",
 export const metadata: Metadata = {
   title: "TruthMate - AI-Powered Fact Verification",
   description: "Verify claims, URLs, and images using AI-powered fact-checking and analysis.",
-    generator: 'v0.app'
+  generator: 'v0.app',
+  icons: {
+    icon: '/favicon.svg',
+  }
 }
 
 export default function RootLayout({
