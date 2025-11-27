@@ -132,7 +132,13 @@ function ClaimCard({ item }: { item: PublicClaim }) {
 export default function ExplorePage() {
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedCategory, setSelectedCategory] = useState("all")
-  const { data: claims } = useSWR<PublicClaim[]>("/api/explore", fetcher)
+  
+  // Build API URL with query parameters
+  const apiUrl = `/api/explore?category=${selectedCategory}&search=${encodeURIComponent(searchQuery)}&sort=recent`
+  const { data: exploreData } = useSWR(apiUrl, fetcher)
+  
+  const claims = exploreData?.verifications || []
+  const stats = exploreData?.stats || { todayVerifications: 0, misinformationCount: 0, activeUsersCount: 0 }
 
   const categories = ["all", "science", "politics", "health", "technology", "finance"]
 
@@ -213,10 +219,10 @@ export default function ExplorePage() {
               <CardTitle className="text-sm font-medium text-muted-foreground">Verified Today</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-3xl font-bold">1,284</div>
+              <div className="text-3xl font-bold">{stats.todayVerifications.toLocaleString()}</div>
               <p className="text-xs text-green-600 mt-1 flex items-center gap-1">
                 <TrendingUp className="w-3 h-3" />
-                +12% from yesterday
+                Live data from API
               </p>
             </CardContent>
           </Card>
@@ -225,8 +231,10 @@ export default function ExplorePage() {
               <CardTitle className="text-sm font-medium text-muted-foreground">Misinformation Found</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-3xl font-bold">423</div>
-              <p className="text-xs text-red-600 mt-1">33% of claims flagged</p>
+              <div className="text-3xl font-bold">{stats.misinformationCount.toLocaleString()}</div>
+              <p className="text-xs text-red-600 mt-1">
+                {stats.todayVerifications > 0 ? Math.round((stats.misinformationCount / stats.todayVerifications) * 100) : 0}% of claims flagged
+              </p>
             </CardContent>
           </Card>
           <Card>
@@ -234,8 +242,8 @@ export default function ExplorePage() {
               <CardTitle className="text-sm font-medium text-muted-foreground">Active Users</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-3xl font-bold">8,921</div>
-              <p className="text-xs text-muted-foreground mt-1">Fact-checking now</p>
+              <div className="text-3xl font-bold">{stats.activeUsersCount.toLocaleString()}</div>
+              <p className="text-xs text-muted-foreground mt-1">Fact-checking today</p>
             </CardContent>
           </Card>
         </div>

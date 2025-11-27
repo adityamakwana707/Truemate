@@ -2,6 +2,8 @@ import NextAuth, { NextAuthOptions } from "next-auth"
 import CredentialsProvider from "next-auth/providers/credentials"
 import type { User } from "next-auth"
 import type { JWT } from "next-auth/jwt"
+import { connectToDatabase } from "@/lib/mongoose"
+import { User as UserModel } from "@/lib/models"
 
 const authOptions: NextAuthOptions = {
   providers: [
@@ -17,33 +19,30 @@ const authOptions: NextAuthOptions = {
         }
 
         try {
-          // Demo user for testing
-          if (credentials.email === "demo@truthmate.com" && credentials.password === "demo123") {
-            return {
-              id: "1",
-              email: credentials.email,
-              name: "Demo User",
-              apiKey: "demo-api-key"
-            }
-          }
+          await connectToDatabase()
           
-          // In a real application, you would:
-          // 1. Query your database for the user by email
-          // 2. Compare the provided password with the hashed password in the database
-          // 3. Return the user object if authentication succeeds
+          // Find user by email and include password for comparison
+          const user = await UserModel.findOne({ email: credentials.email }).select('+password')
           
-          // For development purposes, we'll accept any valid email/password combination
-          // that's at least 6 characters long (to match the signup validation)
-          if (credentials.password.length >= 6) {
-            return {
-              id: Date.now().toString(),
-              email: credentials.email,
-              name: credentials.email.split("@")[0],
-              apiKey: `api-${Date.now()}`
-            }
+          if (!user) {
+            console.log("User not found:", credentials.email)
+            return null
           }
 
-          return null
+          // Compare password
+          const isValidPassword = await user.comparePassword(credentials.password)
+          
+          if (!isValidPassword) {
+            console.log("Invalid password for user:", credentials.email)
+            return null
+          }
+
+          return {
+            id: user._id.toString(),
+            email: user.email,
+            name: user.name,
+            image: null
+          }
         } catch (error) {
           console.error("Authentication error:", error)
           return null
@@ -62,14 +61,12 @@ const authOptions: NextAuthOptions = {
     async jwt({ token, user }): Promise<JWT> {
       if (user) {
         token.sub = user.id
-        token.apiKey = user.apiKey
       }
       return token
     },
     async session({ session, token }) {
       if (session.user) {
         session.user.id = token.sub
-        session.user.apiKey = token.apiKey
       }
       return session
     },
@@ -79,7 +76,7 @@ const authOptions: NextAuthOptions = {
     // Remove signUp as NextAuth doesn't support custom signup pages
   },
   secret: process.env.NEXTAUTH_SECRET,
-  debug: process.env.NODE_ENV === "development",
+  debug: false, // Disable debug to reduce console noise
 }
 
 const handler = NextAuth(authOptions)
