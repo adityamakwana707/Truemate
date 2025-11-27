@@ -1,0 +1,55 @@
+@keyframes pulse-delay-200 {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+@keyframes pulse-delay-400 {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.animation-delay-200 {
+  animation: pulse-delay-200 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  animation-delay: 200ms;
+}
+
+.animation-delay-400 {
+  animation: pulse-delay-400 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  animation-delay: 400ms;
+}
+
+.verification-loader {
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+  animation: shimmer 1.5s infinite;
+}
+
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+.processing-bar {
+  width: 100%;
+  height: 4px;
+  background: #f1f5f9;
+  border-radius: 2px;
+  overflow: hidden;
+  position: relative;
+}
+
+.processing-bar::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  width: 30%;
+  background: linear-gradient(90deg, #3b82f6, #8b5cf6);
+  border-radius: 2px;
+  animation: processing 2s infinite;
+}
+
+@keyframes processing {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}

@@ -37,15 +37,18 @@ export function ClaimInputCard() {
       const result = await response.json()
       
       if (response.ok) {
+        // Redirect to results with verification data
         const claim = text || url || 'Unknown'
-        router.push(`/results?claim=${encodeURIComponent(claim)}&verificationId=${result.verificationId || ''}`)
+        if (result.verificationId) {
+          router.push(`/results?claim=${encodeURIComponent(claim)}&verificationId=${result.verificationId}`)
+        } else {
+          // If no verification ID, pass the result data directly via state
+          router.push(`/results?claim=${encodeURIComponent(claim)}&data=${encodeURIComponent(JSON.stringify(result))}`)
+        }
       } else {
         console.error('Verification failed:', result.error)
-        // Fallback to old behavior for demo
-        const claim = text || url
-        if (claim) {
-          router.push(`/results?claim=${encodeURIComponent(claim)}&public=${isPublic}`)
-        }
+        // Show error to user
+        alert(`Verification failed: ${result.error}`)
       }
     } catch (error) {
       console.error('Verification error:', error)
