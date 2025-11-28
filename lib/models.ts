@@ -22,6 +22,21 @@ const userSchema = new mongoose.Schema({
     required: [true, 'Password is required'],
     minLength: [6, 'Password must be at least 6 characters'],
     select: false // Don't include password in queries by default
+  },
+  apiKey: {
+    type: String,
+    unique: true,
+    sparse: true, // Allow null values but ensure uniqueness when present
+    default: null
+  },
+  role: {
+    type: String,
+    enum: ['user', 'admin', 'moderator'],
+    default: 'user'
+  },
+  isActive: {
+    type: Boolean,
+    default: true
   }
 }, {
   timestamps: true

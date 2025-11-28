@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test TruthMate Results</title>
+</head>
+<body>
+    <h1>Test TruthMate Results Page</h1>
+    
+    <h2>Test Links:</h2>
+    <div style="margin: 20px;">
+        <p><a href="http://localhost:3000/results?claim=vaccines%20are%20safe" target="_blank">
+            Test 1: vaccines are safe
+        </a></p>
+        
+        <p><a href="http://localhost:3000/results?claim=earth%20is%20flat" target="_blank">
+            Test 2: earth is flat
+        </a></p>
+        
+        <p><a href="http://localhost:3000/results?claim=climate%20change%20is%20real" target="_blank">
+            Test 3: climate change is real
+        </a></p>
+    </div>
+
+    <h2>Instructions:</h2>
+    <ol>
+        <li>Make sure ML service is running on port 5000</li>
+        <li>Make sure Next.js is running on port 3000</li>
+        <li>Click the test links above</li>
+        <li>Check browser console for debugging info</li>
+    </ol>
+
+    <h2>Check ML Service:</h2>
+    <button onclick="checkService()">Test ML Service</button>
+    <div id="serviceStatus"></div>
+
+    <script>
+        async function checkService() {
+            try {
+                const response = await fetch('http://localhost:5000/');
+                const data = await response.json();
+                document.getElementById('serviceStatus').innerHTML = 
+                    '<p style="color: green;">✅ ML Service is running! Status: ' + response.status + '</p>';
+                console.log('Service data:', data);
+            } catch (error) {
+                document.getElementById('serviceStatus').innerHTML = 
+                    '<p style="color: red;">❌ ML Service is not running! Error: ' + error.message + '</p>';
+                console.error('Service error:', error);
+            }
+        }
+
+        // Auto-check on load
+        checkService();
+    </script>
+</body>
+</html>

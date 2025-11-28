@@ -43,11 +43,19 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Generate unique API key for the user
+    const generateApiKey = () => {
+      const timestamp = Date.now().toString(36)
+      const randomStr = Math.random().toString(36).substr(2, 10)
+      return `tm_${timestamp}_${randomStr}`
+    }
+
     // Create new user (password will be hashed automatically by the pre-save hook)
     const newUser = new User({
       name: name.trim(),
       email: email.toLowerCase().trim(),
-      password
+      password,
+      apiKey: generateApiKey()
     }) as IUser
 
     // Save user to database
