@@ -57,8 +57,9 @@ function ResultsContent() {
 
       if (response.ok) {
         const result = await response.json()
-        setSavedVerificationId(result.id)
-        console.log('Verification saved to history:', result.id)
+        const verificationId = result.verification?._id || result.id
+        setSavedVerificationId(verificationId)
+        console.log('Verification saved to history:', verificationId)
       } else {
         throw new Error(`Failed to save verification: ${response.status}`)
       }

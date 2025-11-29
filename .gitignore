@@ -1,6 +1,5 @@
 node_modules
 .next
-ml-service
 .env
 .env.local
 .env.development

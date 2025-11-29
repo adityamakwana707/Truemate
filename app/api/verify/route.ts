@@ -73,22 +73,25 @@ export async function POST(request: NextRequest) {
     // Handle both FormData and JSON requests
     let text: string = ''
     let url: string = ''
-    let image: string = ''
+    let image: string | File | null = null
     let isPublic: boolean = false
+    let formData: FormData | null = null
 
     const contentType = request.headers.get('content-type') || ''
     
     if (contentType.includes('multipart/form-data')) {
-      const formData = await request.formData()
+      formData = await request.formData()
       text = (formData.get('text') as string) || ''
       url = (formData.get('url') as string) || ''
-      image = (formData.get('image') as string) || ''
+      const imageField = formData.get('image')
+      // Image can be a File object or string
+      image = imageField instanceof File ? imageField : (imageField as string) || null
       isPublic = formData.get('public') === 'true'
     } else {
       const body: VerificationRequest = await request.json()
       text = body.text || ''
       url = body.url || ''
-      image = body.image || ''
+      image = body.image || null
       isPublic = body.public || false
     }
 
@@ -155,10 +158,106 @@ export async function POST(request: NextRequest) {
     let imageAnalysis = null
     if (image) {
       try {
-        imageAnalysis = await callMLService('/verify-image', { image })
+        // Handle image from FormData (File object) or base64 string
+        if (image instanceof File) {
+          // Image is a File object from FormData - send directly to /analyze-image
+          const mlFormData = new FormData()
+          mlFormData.append('image', image)
+          
+          const controller = new AbortController()
+          const timeoutId = setTimeout(() => controller.abort(), 30000) // 30s for image analysis
+          
+          try {
+            const imageResponse = await fetch(`${ML_SERVICE_BASE_URL}/analyze-image`, {
+              method: 'POST',
+              body: mlFormData,
+              signal: controller.signal
+            })
+            
+            clearTimeout(timeoutId)
+            
+            if (imageResponse.ok) {
+              imageAnalysis = await imageResponse.json()
+              console.log('✅ Image deepfake analysis completed:', imageAnalysis.success)
+            } else {
+              const errorText = await imageResponse.text()
+              throw new Error(`Image analysis failed: ${imageResponse.status} - ${errorText}`)
+            }
+          } catch (fetchError) {
+            clearTimeout(timeoutId)
+            throw fetchError
+          }
+        } else if (typeof image === 'string' && image.startsWith('data:image')) {
+          // Image is base64 string - convert and send to /analyze-image
+          try {
+            const matches = image.match(/^data:image\/(\w+);base64,(.+)$/)
+            if (matches) {
+              const mimeType = matches[1]
+              const base64Data = matches[2]
+              const buffer = Buffer.from(base64Data, 'base64')
+              const blob = new Blob([buffer], { type: `image/${mimeType}` })
+              const file = new File([blob], `image.${mimeType}`, { type: `image/${mimeType}` })
+              
+              const mlFormData = new FormData()
+              mlFormData.append('image', file)
+              
+              const controller = new AbortController()
+              const timeoutId = setTimeout(() => controller.abort(), 30000)
+              
+              try {
+                const imageResponse = await fetch(`${ML_SERVICE_BASE_URL}/analyze-image`, {
+                  method: 'POST',
+                  body: mlFormData,
+                  signal: controller.signal
+                })
+                
+                clearTimeout(timeoutId)
+                
+                if (imageResponse.ok) {
+                  imageAnalysis = await imageResponse.json()
+                  console.log('✅ Image deepfake analysis completed:', imageAnalysis.success)
+                } else {
+                  const errorText = await imageResponse.text()
+                  throw new Error(`Image analysis failed: ${imageResponse.status} - ${errorText}`)
+                }
+              } catch (fetchError) {
+                clearTimeout(timeoutId)
+                throw fetchError
+              }
+            } else {
+              throw new Error('Invalid base64 image format')
+            }
+          } catch (conversionError) {
+            console.error('Base64 image conversion failed:', conversionError)
+            imageAnalysis = { 
+              success: false,
+              error: 'Failed to process base64 image',
+              deepfake_analysis: { verdict: 'ERROR', confidence_score: 0 }
+            }
+          }
+        } else {
+          console.warn('Image provided but in unsupported format:', typeof image)
+          imageAnalysis = { 
+            success: false,
+            error: 'Unsupported image format',
+            deepfake_analysis: { verdict: 'UNKNOWN', confidence_score: 0 }
+          }
+        }
       } catch (error) {
         console.error('Image verification failed:', error)
-        imageAnalysis = { authenticity: 'unknown', confidence: 0 }
+        imageAnalysis = { 
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error',
+          deepfake_analysis: { 
+            verdict: 'UNKNOWN', 
+            confidence_score: 0,
+            authenticity_rating: 'UNKNOWN'
+          },
+          overall_assessment: {
+            risk_level: 'MEDIUM',
+            recommendation: 'Image analysis unavailable'
+          }
+        }
       }
     }
 
