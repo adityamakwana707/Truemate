@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useSession, signOut } from "next-auth/react"
-import { Shield, Menu, X, Search, History, Compass, Users, Bookmark, Settings, User, LogOut, Monitor } from "lucide-react"
+import { Shield, Menu, X, Search, History, Compass, Bookmark, Settings, User, LogOut } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { 
@@ -20,9 +20,7 @@ import { ThemeToggle } from "@/components/theme-toggle"
 
 const navItems = [
   { href: "/dashboard", label: "Verify", icon: Search },
-  { href: "/desktop-watchdog", label: "Desktop Watchdog", icon: Monitor },
   { href: "/explore", label: "Explore", icon: Compass },
-  { href: "/community", label: "Community", icon: Users },
   { href: "/history", label: "History", icon: History },
   { href: "/bookmarks", label: "Bookmarks", icon: Bookmark },
   { href: "/settings", label: "Settings", icon: Settings },

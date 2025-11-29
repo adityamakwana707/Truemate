@@ -1,11 +1,12 @@
 "use client"
 
 import { useSearchParams } from "next/navigation"
-import { Suspense, useState } from "react"
+import { Suspense, useState, useEffect, useCallback } from "react"
+import { useSession } from "next-auth/react"
 import { Header } from "@/components/header"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { ArrowLeft, Bookmark, Loader2, Brain, CheckCircle, XCircle, AlertTriangle, FileText, ExternalLink } from "lucide-react"
+import { ArrowLeft, Bookmark, Loader2, Brain, CheckCircle, XCircle, AlertTriangle, FileText, ExternalLink, ImageIcon } from "lucide-react"
 import useSWR from "swr"
 import Link from "next/link"
 import { Badge } from "@/components/ui/badge"
@@ -22,6 +23,50 @@ function ResultsContent() {
   const verificationId = searchParams?.get("verificationId") || ""
   const dataParam = searchParams?.get("data") || ""
   const isTruthmateAnalysis = searchParams?.get("truthmate") === "true"
+  const isImageAnalysis = searchParams?.get("image") === "true"
+  
+  // State for managing verification ID and bookmarking
+  const [savedVerificationId, setSavedVerificationId] = useState<string | null>(verificationId || null)
+  const [isBookmarked, setIsBookmarked] = useState(false)
+  const [isBookmarking, setIsBookmarking] = useState(false)
+
+  // Function to save verification result to user's history (memoized)
+  const saveVerificationResult = useCallback(async (data: any) => {
+    if (!session?.user?.id || !data || savedVerificationId) return
+
+    try {
+      const response = await fetch('/api/verifications', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          claim: claim,
+          verdict: data.verdict || data.risk_type || 'unknown',
+          confidence: data.confidence || data.safety_score || 0,
+          explanation: data.explanation || data.analysis_reason || 'Analysis completed',
+          sources: data.sources || [],
+          metadata: {
+            truthmate_analysis: data.truthmate_os_analysis || false,
+            safety_score: data.safety_score,
+            credibility_score: data.credibility_score,
+            analysis_type: data.truthmate_os_analysis ? 'truthmate' : 'standard'
+          }
+        })
+      })
+
+      if (response.ok) {
+        const result = await response.json()
+        setSavedVerificationId(result.id)
+        console.log('Verification saved to history:', result.id)
+      } else {
+        throw new Error(`Failed to save verification: ${response.status}`)
+      }
+    } catch (error) {
+      console.error('Error saving verification result:', error)
+      throw error
+    }
+  }, [session?.user?.id, claim, savedVerificationId])
 
   console.log('ResultsContent - claim:', claim)
   console.log('ResultsContent - verificationId:', verificationId)  
@@ -83,16 +128,18 @@ function ResultsContent() {
 
   // Save verification result when data becomes available
   useEffect(() => {
-    if (resultData && session?.user?.id) {
-      // Don't block UI if saving fails
+    if (resultData && session?.user?.id && !savedVerificationId) {
+      // Only save if we don't already have a verification ID
       saveVerificationResult(resultData).catch(err => {
         console.warn('Failed to save verification to history, but continuing with display:', err)
       })
     }
-  }, [resultData, session?.user?.id])
+  }, [resultData, session?.user?.id, savedVerificationId])
 
   // Check if verification is already bookmarked when component loads
   useEffect(() => {
+    let isMounted = true
+    
     const checkBookmarkStatus = async () => {
       if (!session?.user?.id) return
       
@@ -102,6 +149,8 @@ function ResultsContent() {
       if (!targetVerificationId && claim) {
         try {
           const verifyResponse = await fetch('/api/verifications?search=' + encodeURIComponent(claim))
+          if (!isMounted) return
+          
           if (verifyResponse.ok) {
             const verifyData = await verifyResponse.json()
             if (verifyData.verifications && verifyData.verifications.length > 0) {
@@ -110,7 +159,7 @@ function ResultsContent() {
               )
               if (matchingVerification) {
                 targetVerificationId = matchingVerification._id
-                setSavedVerificationId(targetVerificationId)
+                if (isMounted) setSavedVerificationId(targetVerificationId)
               }
             }
           }
@@ -119,10 +168,12 @@ function ResultsContent() {
         }
       }
       
-      if (!targetVerificationId) return
+      if (!targetVerificationId || !isMounted) return
       
       try {
         const response = await fetch('/api/bookmarks')
+        if (!isMounted) return
+        
         if (response.ok) {
           const data = await response.json()
           const bookmarks = data.bookmarks || []
@@ -131,15 +182,24 @@ function ResultsContent() {
             bookmark.verificationId === targetVerificationId ||
             bookmark.verificationId?.toString() === targetVerificationId
           )
-          setIsBookmarked(isAlreadyBookmarked)
-          console.log('Bookmark status checked:', { targetVerificationId, isAlreadyBookmarked, totalBookmarks: bookmarks.length })
+          if (isMounted) {
+            setIsBookmarked(isAlreadyBookmarked)
+            console.log('Bookmark status checked:', { targetVerificationId, isAlreadyBookmarked, totalBookmarks: bookmarks.length })
+          }
         }
       } catch (error) {
-        console.error('Failed to check bookmark status:', error)
+        if (isMounted) console.error('Failed to check bookmark status:', error)
       }
     }
 
-    checkBookmarkStatus()
+    // Only check bookmark status if we have the necessary data and haven't checked before
+    if (session?.user?.id && (savedVerificationId || claim)) {
+      checkBookmarkStatus()
+    }
+    
+    return () => {
+      isMounted = false
+    }
   }, [session?.user?.id, savedVerificationId, claim])
 
   // Handle bookmark functionality
@@ -303,6 +363,214 @@ function ResultsContent() {
     )
   }
 
+  // Image Analysis Results Display
+  if (isImageAnalysis && resultData) {
+    return (
+      <div className="space-y-6">
+        {/* Navigation */}
+        <div className="flex items-center justify-between">
+          <Link href="/dashboard">
+            <Button variant="ghost" size="sm" className="gap-2">
+              <ArrowLeft className="w-4 h-4" />
+              New Analysis
+            </Button>
+          </Link>
+          <div className="flex items-center gap-2">
+            <Badge variant="outline" className="bg-gradient-to-r from-pink-500/10 to-purple-500/10 text-pink-700 border-pink-300">
+              🖼️ Deepfake Detection Analysis
+            </Badge>
+            {session?.user && (
+              <Button 
+                variant="outline" 
+                size="sm" 
+                className="gap-2"
+                onClick={() => toggleBookmark()}
+                disabled={isBookmarking}
+              >
+                <Bookmark className={`w-4 h-4 ${isBookmarked ? 'fill-current' : ''}`} />
+                {isBookmarking ? 'Saving...' : isBookmarked ? 'Saved' : 'Save'}
+              </Button>
+            )}
+          </div>
+        </div>
+
+        {/* Image Analysis Hero Card */}
+        <Card className="relative overflow-hidden border-0 shadow-2xl bg-gradient-to-br from-pink-50 via-purple-50 to-indigo-50 dark:from-pink-900/20 dark:via-purple-900/20 dark:to-indigo-900/20">
+          <div className="absolute inset-0 bg-gradient-to-br from-pink-500/10 via-purple-500/10 to-indigo-500/10"></div>
+          
+          <CardContent className="p-12 relative">
+            <div className="text-center space-y-8">
+              {/* Image Analysis Header */}
+              <div className="flex flex-col items-center gap-4">
+                <div className="relative">
+                  <div className="absolute inset-0 bg-pink-500/20 rounded-full blur-xl scale-150"></div>
+                  <div className="relative p-6 bg-gradient-to-br from-pink-100 to-purple-100 dark:from-pink-900/50 dark:to-purple-900/50 rounded-full border-4 border-pink-300 dark:border-pink-600">
+                    <ImageIcon className="w-8 h-8 text-pink-600" />
+                  </div>
+                </div>
+                
+                <div className="space-y-4">
+                  <h1 className="text-4xl font-bold bg-gradient-to-r from-pink-600 via-purple-600 to-indigo-600 bg-clip-text text-transparent">
+                    DEEPFAKE DETECTION
+                  </h1>
+                  <p className="text-lg text-muted-foreground">
+                    Advanced AI-Powered Image Authenticity Analysis
+                  </p>
+                </div>
+              </div>
+
+              {/* Authenticity Verdict */}
+              <div className="grid md:grid-cols-3 gap-6">
+                <Card className="bg-gradient-to-br from-white/80 to-gray-50/80 dark:from-gray-800/80 dark:to-gray-900/80 backdrop-blur-sm border-2">
+                  <CardContent className="p-6 text-center">
+                    <div className="mb-4">
+                      {resultData.deepfake_analysis?.verdict === 'REAL' ? (
+                        <CheckCircle className="w-12 h-12 text-green-500 mx-auto" />
+                      ) : resultData.deepfake_analysis?.verdict === 'FAKE/AI' ? (
+                        <XCircle className="w-12 h-12 text-red-500 mx-auto" />
+                      ) : (
+                        <AlertTriangle className="w-12 h-12 text-yellow-500 mx-auto" />
+                      )}
+                    </div>
+                    <h3 className="text-xl font-bold mb-2">Authenticity</h3>
+                    <p className="text-2xl font-bold mb-2">
+                      {resultData.deepfake_analysis?.authenticity_rating || 'UNKNOWN'}
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      {resultData.deepfake_analysis?.verdict || 'Analysis unavailable'}
+                    </p>
+                  </CardContent>
+                </Card>
+
+                <Card className="bg-gradient-to-br from-white/80 to-gray-50/80 dark:from-gray-800/80 dark:to-gray-900/80 backdrop-blur-sm border-2">
+                  <CardContent className="p-6 text-center">
+                    <div className="mb-4">
+                      <Brain className="w-12 h-12 text-blue-500 mx-auto" />
+                    </div>
+                    <h3 className="text-xl font-bold mb-2">Confidence</h3>
+                    <p className="text-2xl font-bold mb-2">
+                      {resultData.deepfake_analysis?.confidence_score || 0}%
+                    </p>
+                    <Progress 
+                      value={resultData.deepfake_analysis?.confidence_score || 0} 
+                      className="h-2"
+                    />
+                  </CardContent>
+                </Card>
+
+                <Card className="bg-gradient-to-br from-white/80 to-gray-50/80 dark:from-gray-800/80 dark:to-gray-900/80 backdrop-blur-sm border-2">
+                  <CardContent className="p-6 text-center">
+                    <div className="mb-4">
+                      {resultData.overall_assessment?.risk_level === 'LOW' ? (
+                        <CheckCircle className="w-12 h-12 text-green-500 mx-auto" />
+                      ) : resultData.overall_assessment?.risk_level === 'HIGH' ? (
+                        <XCircle className="w-12 h-12 text-red-500 mx-auto" />
+                      ) : (
+                        <AlertTriangle className="w-12 h-12 text-yellow-500 mx-auto" />
+                      )}
+                    </div>
+                    <h3 className="text-xl font-bold mb-2">Risk Level</h3>
+                    <p className="text-2xl font-bold mb-2">
+                      {resultData.overall_assessment?.risk_level || 'MEDIUM'}
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      Risk Assessment
+                    </p>
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Technical Analysis Details */}
+        <Card className="border-0 shadow-xl">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Brain className="w-5 h-5" />
+              Technical Analysis Report
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            {/* Analysis Summary */}
+            <div className="p-6 bg-muted/30 rounded-lg">
+              <h3 className="font-semibold mb-3">Analysis Summary</h3>
+              <p className="text-muted-foreground">
+                {resultData.overall_assessment?.recommendation || 'No recommendation available'}
+              </p>
+            </div>
+
+            {/* Visual Anomalies */}
+            {resultData.deepfake_analysis?.visual_anomalies && resultData.deepfake_analysis.visual_anomalies.length > 0 && (
+              <div>
+                <h3 className="font-semibold mb-3">Visual Anomalies Detected</h3>
+                <div className="grid gap-2">
+                  {resultData.deepfake_analysis.visual_anomalies.map((anomaly: string, index: number) => (
+                    <div key={index} className="flex items-center gap-2 p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
+                      <AlertTriangle className="w-4 h-4 text-yellow-600" />
+                      <span className="text-sm">{anomaly}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Technical Details */}
+            <div className="grid md:grid-cols-2 gap-6">
+              <div>
+                <h3 className="font-semibold mb-3">Image Information</h3>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Format:</span>
+                    <span>{resultData.image_info?.format || 'Unknown'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Dimensions:</span>
+                    <span>{resultData.image_info?.size ? `${resultData.image_info.size[0]} × ${resultData.image_info.size[1]}` : 'Unknown'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Mode:</span>
+                    <span>{resultData.image_info?.mode || 'Unknown'}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <h3 className="font-semibold mb-3">Analysis Method</h3>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Method:</span>
+                    <span>Hybrid Forensic Analysis</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">ELA Analysis:</span>
+                    <span>{resultData.deepfake_analysis?.ela_analysis_available ? 'Available' : 'Unavailable'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">AI Model:</span>
+                    <span>Gemini Vision</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Detailed Explanation */}
+            {resultData.deepfake_analysis?.detailed_explanation && (
+              <div>
+                <h3 className="font-semibold mb-3">Detailed Technical Explanation</h3>
+                <div className="p-4 bg-muted/30 rounded-lg">
+                  <p className="text-sm text-muted-foreground">
+                    {resultData.deepfake_analysis.detailed_explanation}
+                  </p>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
   // TruthMate OS Results Display
   if (isTruthmateResult) {
     return (
@@ -459,63 +727,99 @@ function ResultsContent() {
                         SECURE PREVIEW MODE
                       </div>
                       
-                      {/* Live Website Preview or Screenshot */}
-                      {resultData.website_preview?.preview_available ? (
-                        resultData.screenshot_b64 ? (
-                          <img 
-                            src={`data:image/png;base64,${resultData.screenshot_b64}`}
-                            alt="Website Preview"
-                            className="max-w-full max-h-[400px] object-contain cursor-crosshair hover:scale-105 transition-transform"
-                            onClick={() => {
-                              // Simulate click interaction like TruthMate OS
-                              console.log('🖱️ Sandbox interaction detected')
-                            }}
-                          />
-                        ) : (
-                          <div className="w-full h-[400px] bg-white border-2 border-gray-300 overflow-hidden relative">
-                            {/* Website Info Card */}
-                            <div className="absolute top-0 left-0 right-0 bg-gray-800 text-white p-3 z-20">
-                              <div className="flex items-center gap-2 text-sm">
-                                <div className="w-3 h-3 bg-green-500 rounded-full"></div>
-                                <span className="font-mono">{resultData.website_preview?.url || resultData.claim}</span>
-                              </div>
+                      {/* Website Preview */}
+                      {resultData.screenshot_b64 ? (
+                        <div className="w-full h-[400px] bg-white border-2 border-gray-300 overflow-hidden relative">
+                          {/* Website Info Card */}
+                          <div className="absolute top-0 left-0 right-0 bg-gray-800 text-white p-3 z-20">
+                            <div className="flex items-center gap-2 text-sm">
+                              <div className="w-3 h-3 bg-green-500 rounded-full"></div>
+                              <span className="font-mono">{resultData.url}</span>
+                              <span className="ml-auto text-xs bg-green-600 px-2 py-1 rounded">
+                                🔒 SERVER-SIDE SECURE
+                              </span>
                             </div>
-                            
-                            {/* Live iframe with fallback */}
-                            <iframe
-                              src={resultData.website_preview?.url || resultData.claim}
-                              className="w-full h-full border-none pt-12"
-                              sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
-                              title="Live Website Preview - TruthMate OS Sandbox"
-                              onLoad={(e) => {
-                                console.log('✅ Website loaded successfully in sandbox');
+                          </div>
+                          
+                          {/* Screenshot Display */}
+                          <div className="w-full h-full pt-12 bg-gray-100 flex items-center justify-center">
+                            <img 
+                              src={`data:image/png;base64,${resultData.screenshot_b64}`}
+                              alt="Secure Website Preview"
+                              className="max-w-full max-h-full object-contain cursor-pointer hover:scale-105 transition-transform"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                // Enhanced sandbox interaction - zoom/expand view
+                                const img = e.target as HTMLImageElement;
+                                if (img.classList.contains('scale-150')) {
+                                  img.classList.remove('scale-150');
+                                } else {
+                                  img.classList.add('scale-150');
+                                }
                               }}
-                              onError={(e) => {
-                                console.log('❌ Iframe failed to load website');
+                            />
+                          </div>
+                          
+                          {/* Security Indicators */}
+                          <div className="absolute bottom-4 right-4 space-y-2">
+                            <div className="bg-green-600 text-white px-2 py-1 text-xs font-bold rounded">
+                              🔒 SECURE MODE
+                            </div>
+                            <div className="bg-blue-600 text-white px-2 py-1 text-xs font-bold rounded">
+                              📷 SERVER-SIDE
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="w-full h-[400px] bg-white border-2 border-gray-300 overflow-hidden relative">
+                          {/* Website Info Card */}
+                          <div className="absolute top-0 left-0 right-0 bg-gray-800 text-white p-3 z-20">
+                            <div className="flex items-center gap-2 text-sm">
+                              <div className="w-3 h-3 bg-green-500 rounded-full"></div>
+                              <span className="font-mono">{resultData.url}</span>
+                              <span className="ml-auto text-xs bg-yellow-600 px-2 py-1 rounded">
+                                📋 TEXT ANALYSIS
+                              </span>
+                            </div>
+                          </div>
+                          
+                          {/* Live Preview with iframe (safer approach) */}
+                          <div className="w-full h-full pt-12 bg-gray-100 relative">
+                            <iframe 
+                              src={resultData.url}
+                              className="w-full h-full border-none"
+                              sandbox="allow-same-origin allow-scripts allow-popups allow-forms"
+                              loading="lazy"
+                              title="Website Preview"
+                              onError={() => {
+                                console.log('Iframe failed to load, showing fallback');
                               }}
                             />
                             
-                            {/* Click overlay for interaction simulation */}
-                            <div className="absolute inset-0 bg-transparent pointer-events-none">
-                              <div className="absolute bottom-4 right-4 bg-red-600 text-white px-2 py-1 text-xs font-bold rounded">
-                                🔒 SANDBOX MODE
-                              </div>
-                            </div>
+                            {/* Click overlay for security */}
+                            <div 
+                              className="absolute inset-0 bg-transparent cursor-pointer"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                // Show interaction message instead of redirect
+                                const overlay = e.target as HTMLElement;
+                                const message = document.createElement('div');
+                                message.innerHTML = '🔒 Sandbox Mode Active - Interactions Simulated';
+                                message.className = 'absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-blue-600 text-white px-4 py-2 rounded-lg font-bold z-30';
+                                overlay.appendChild(message);
+                                setTimeout(() => message.remove(), 2000);
+                              }}
+                              title="Click to interact in sandbox"
+                            />
                           </div>
-                        )
-                      ) : (
-                        <div className="text-center text-gray-400 p-8">
-                          <div className="text-6xl mb-4">🔍</div>
-                          <div className="text-xl mb-2 font-mono">[ANALYZING CONTENT]</div>
-                          <div className="text-sm opacity-75 space-y-2">
-                            <div>🔐 Website cannot be displayed in sandbox mode</div>
-                            <div>📊 Security analysis completed via text extraction</div>
-                            <div className="mt-4 text-xs">
-                              <div className="bg-gray-800 text-green-400 p-2 rounded font-mono">
-                                {'>'} Content successfully extracted and analyzed<br/>
-                                {'>'} URL reputation check: COMPLETED<br/>
-                                {'>'} Risk assessment: ACTIVE
-                              </div>
+                          
+                          {/* Security Indicators */}
+                          <div className="absolute bottom-4 right-4 space-y-2">
+                            <div className="bg-yellow-600 text-white px-2 py-1 text-xs font-bold rounded">
+                              🔒 SANDBOXED
+                            </div>
+                            <div className="bg-blue-600 text-white px-2 py-1 text-xs font-bold rounded">
+                              🌐 LIVE PREVIEW
                             </div>
                           </div>
                         </div>
@@ -758,153 +1062,109 @@ function ResultsContent() {
 
 
 
-      {/* Hero Verdict Card - Enhanced Design */}
-      <Card className="relative overflow-hidden border-0 shadow-2xl bg-gradient-to-br from-background via-background to-muted/20">
-        <div className={`absolute inset-0 opacity-10 ${
-          resultData.verdict === 'TRUE' ? 'bg-gradient-to-br from-green-500 to-emerald-600' : 
-          resultData.verdict === 'FALSE' ? 'bg-gradient-to-br from-red-500 to-rose-600' : 
-          'bg-gradient-to-br from-yellow-500 to-amber-600'
-        }`}></div>
-        
-        <CardContent className="p-12 relative">
-          <div className="text-center space-y-8">
-            {/* Enhanced Verdict Icon & Label */}
-            <div className="flex flex-col items-center gap-6">
-              {resultData.verdict === 'TRUE' && (
-                <div className="relative">
-                  <div className="absolute inset-0 bg-green-500/20 rounded-full blur-xl scale-150"></div>
-                  <div className="relative p-6 bg-gradient-to-br from-green-50 to-emerald-100 dark:from-green-900/30 dark:to-emerald-900/20 rounded-full border-4 border-green-200 dark:border-green-700">
-                    <CheckCircle className="w-16 h-16 text-green-600" />
-                  </div>
-                </div>
-              )}
-              {resultData.verdict === 'FALSE' && (
-                <div className="relative">
-                  <div className="absolute inset-0 bg-red-500/20 rounded-full blur-xl scale-150"></div>
-                  <div className="relative p-6 bg-gradient-to-br from-red-50 to-rose-100 dark:from-red-900/30 dark:to-rose-900/20 rounded-full border-4 border-red-200 dark:border-red-700">
-                    <XCircle className="w-16 h-16 text-red-600" />
-                  </div>
-                </div>
-              )}
-              {(resultData.verdict === 'MISLEADING' || resultData.verdict === 'UNKNOWN') && (
-                <div className="relative">
-                  <div className="absolute inset-0 bg-yellow-500/20 rounded-full blur-xl scale-150"></div>
-                  <div className="relative p-6 bg-gradient-to-br from-yellow-50 to-amber-100 dark:from-yellow-900/30 dark:to-amber-900/20 rounded-full border-4 border-yellow-200 dark:border-yellow-700">
-                    <AlertTriangle className="w-16 h-16 text-yellow-600" />
-                  </div>
-                </div>
-              )}
-              
-              <div className="space-y-4">
-                <h1 className="text-6xl font-black tracking-tight">
-                  {resultData.verdict === 'TRUE' && (
-                    <span className="bg-gradient-to-r from-green-600 to-emerald-600 bg-clip-text text-transparent">
-                      TRUE
-                    </span>
+      {/* Modern Verdict Display */}
+      <div className="space-y-6">
+        {/* Verdict Status Card */}
+        <Card className={`border-2 shadow-xl ${
+          resultData.verdict === 'TRUE' ? 'border-green-200 bg-green-50/30 dark:bg-green-900/10' : 
+          resultData.verdict === 'FALSE' ? 'border-red-200 bg-red-50/30 dark:bg-red-900/10' : 
+          'border-yellow-200 bg-yellow-50/30 dark:bg-yellow-900/10'
+        }`}>
+          <CardContent className="p-8">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-6">
+                {/* Verdict Icon */}
+                <div className={`p-4 rounded-full ${
+                  resultData.verdict === 'TRUE' ? 'bg-green-100 dark:bg-green-900/30' : 
+                  resultData.verdict === 'FALSE' ? 'bg-red-100 dark:bg-red-900/30' : 
+                  'bg-yellow-100 dark:bg-yellow-900/30'
+                }`}>
+                  {resultData.verdict === 'TRUE' && <CheckCircle className="w-8 h-8 text-green-600" />}
+                  {resultData.verdict === 'FALSE' && <XCircle className="w-8 h-8 text-red-600" />}
+                  {(resultData.verdict === 'MISLEADING' || resultData.verdict === 'UNKNOWN') && (
+                    <AlertTriangle className="w-8 h-8 text-yellow-600" />
                   )}
-                  {resultData.verdict === 'FALSE' && (
-                    <span className="bg-gradient-to-r from-red-600 to-rose-600 bg-clip-text text-transparent">
-                      FALSE
-                    </span>
-                  )}
-                  {resultData.verdict === 'MISLEADING' && (
-                    <span className="bg-gradient-to-r from-yellow-600 to-amber-600 bg-clip-text text-transparent">
-                      MISLEADING
-                    </span>
-                  )}
-                  {resultData.verdict === 'UNKNOWN' && (
-                    <span className="bg-gradient-to-r from-gray-600 to-slate-600 bg-clip-text text-transparent">
-                      UNKNOWN
-                    </span>
-                  )}
-                </h1>
-                
-                <div className="flex items-center justify-center gap-4">
-                  <div className="text-4xl font-bold bg-gradient-to-r from-primary to-blue-600 bg-clip-text text-transparent">
-                    {(resultData.confidence || 0).toFixed(0)}%
-                  </div>
-                  <div className="text-xl text-muted-foreground font-medium">Confidence</div>
                 </div>
                 
-                {/* Confidence Bar */}
-                <div className="w-64 mx-auto">
-                  <Progress 
-                    value={resultData.confidence || 0} 
-                    className={`h-3 ${
-                      resultData.verdict === 'TRUE' ? 'text-green-500' :
-                      resultData.verdict === 'FALSE' ? 'text-red-500' : 'text-yellow-500'
-                    }`}
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Enhanced Claim Display */}
-            <div className="max-w-4xl mx-auto">
-              <div className="relative">
-                <div className="absolute inset-0 bg-gradient-to-r from-primary/10 to-blue-500/10 rounded-2xl blur-sm"></div>
-                <div className="relative p-8 bg-card/80 backdrop-blur-sm rounded-2xl border-2 border-primary/20 shadow-xl">
-                  <div className="flex items-start gap-4">
-                    <div className="p-3 bg-primary/10 rounded-full shrink-0">
-                      <FileText className="w-6 h-6 text-primary" />
-                    </div>
-                    <div className="flex-1">
-                      <h3 className="text-sm font-semibold text-primary mb-2 uppercase tracking-wide">
-                        Analyzed Claim
-                      </h3>
-                      <p className="text-2xl font-semibold leading-relaxed text-foreground">
-                        "{resultData.claim || claim}"
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Enhanced Comprehensive Analysis Section */}
-      {resultData.comprehensive_explanation && (
-        <Card className="border-0 shadow-xl bg-gradient-to-br from-card via-card to-muted/10">
-          <CardContent className="p-0">
-            {/* Header Section with Gradient */}
-            <div className="bg-gradient-to-r from-primary/10 via-blue-500/10 to-purple-500/10 p-8 border-b">
-              <div className="flex items-center gap-4">
-                <div className="relative">
-                  <div className="absolute inset-0 bg-primary/20 rounded-full blur-sm"></div>
-                  <div className="relative p-4 bg-primary/10 rounded-full border-2 border-primary/20">
-                    <Brain className="w-8 h-8 text-primary" />
-                  </div>
-                </div>
+                {/* Verdict Text */}
                 <div>
-                  <h3 className="text-3xl font-bold bg-gradient-to-r from-primary to-blue-600 bg-clip-text text-transparent">
-                    Comprehensive Analysis
-                  </h3>
+                  <h2 className={`text-3xl font-bold ${
+                    resultData.verdict === 'TRUE' ? 'text-green-600' : 
+                    resultData.verdict === 'FALSE' ? 'text-red-600' : 'text-yellow-600'
+                  }`}>
+                    {resultData.verdict}
+                  </h2>
                   <p className="text-muted-foreground mt-1">
-                    Detailed fact-checking breakdown with expert-level analysis
+                    Analysis completed with {(resultData.confidence || 0).toFixed(0)}% confidence
                   </p>
                 </div>
               </div>
+              
+              {/* Confidence Score */}
+              <div className="text-right">
+                <div className="text-4xl font-bold text-primary mb-2">
+                  {(resultData.confidence || 0).toFixed(0)}%
+                </div>
+                <Progress 
+                  value={resultData.confidence || 0} 
+                  className="w-32 h-3"
+                />
+              </div>
             </div>
-            
-            {/* Content Section */}
-            <div className="p-8">
-              <div className="prose prose-lg max-w-none dark:prose-invert leading-relaxed">
+          </CardContent>
+        </Card>
+
+        {/* Claim Display Card */}
+        <Card className="border shadow-lg">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-3">
+              <FileText className="w-5 h-5 text-primary" />
+              Analyzed Content
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <blockquote className="border-l-4 border-primary pl-6 py-2 bg-muted/30 rounded-r">
+              <p className="text-lg italic">"{resultData.claim || claim}"</p>
+            </blockquote>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Enhanced Comprehensive Analysis Section */}
+      {resultData.comprehensive_explanation && (
+        <Card className="overflow-hidden border-2 shadow-2xl bg-gradient-to-br from-slate-50/50 via-blue-50/30 to-indigo-50/20 dark:from-slate-900/30 dark:via-blue-900/20 dark:to-indigo-900/10">
+          {/* Modern Header with Icon */}
+          <CardHeader className="bg-gradient-to-r from-blue-600/10 via-indigo-600/10 to-purple-600/10 border-b-2 border-blue-200/20">
+            <div className="flex items-center space-x-4">
+              <div className="p-3 bg-blue-500/10 rounded-xl border-2 border-blue-300/20">
+                <Brain className="w-8 h-8 text-blue-600" />
+              </div>
+              <div>
+                <CardTitle className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
+                  AI Analysis Report
+                </CardTitle>
+                <p className="text-muted-foreground mt-1">
+                  Comprehensive fact-checking with expert-level breakdown
+                </p>
+              </div>
+            </div>
+          </CardHeader>
+          
+          <CardContent className="p-8">
+            <div className="bg-white/70 dark:bg-slate-900/40 rounded-xl p-8 border border-blue-200/30">
+              <div className="prose prose-lg max-w-none dark:prose-invert">
                 <ReactMarkdown 
                   remarkPlugins={[remarkGfm]}
                   components={{
-                    h1: ({ node, ...props }) => <h1 className="text-3xl font-bold mb-6 text-primary border-b-2 border-primary/20 pb-2" {...props} />,
-                    h2: ({ node, ...props }) => <h2 className="text-2xl font-bold mb-4 mt-8 text-primary flex items-center gap-2" {...props} />,
-                    h3: ({ node, ...props }) => <h3 className="text-xl font-semibold mb-3 mt-6 text-foreground" {...props} />,
-                    p: ({ node, ...props }) => <p className="mb-6 leading-relaxed text-lg text-foreground/90" {...props} />,
-                    ul: ({ node, ...props }) => <ul className="mb-6 ml-8 space-y-3" {...props} />,
-                    ol: ({ node, ...props }) => <ol className="mb-6 ml-8 space-y-3" {...props} />,
-                    li: ({ node, ...props }) => <li className="leading-relaxed text-foreground/90 marker:text-primary" {...props} />,
-                    strong: ({ node, ...props }) => <strong className="font-bold text-primary bg-primary/10 px-1 rounded" {...props} />,
-                    em: ({ node, ...props }) => <em className="italic text-primary" {...props} />,
+                    h1: ({ node, ...props }) => <h1 className="text-2xl font-bold mb-4 text-blue-600 flex items-center gap-2" {...props} />,
+                    h2: ({ node, ...props }) => <h2 className="text-xl font-bold mb-3 mt-6 text-blue-600 flex items-center gap-2" {...props} />,
+                    h3: ({ node, ...props }) => <h3 className="text-lg font-semibold mb-2 mt-4 text-foreground" {...props} />,
+                    p: ({ node, ...props }) => <p className="mb-4 leading-relaxed text-foreground/90" {...props} />,
+                    ul: ({ node, ...props }) => <ul className="mb-4 ml-6 space-y-2" {...props} />,
+                    li: ({ node, ...props }) => <li className="leading-relaxed text-foreground/90" {...props} />,
+                    strong: ({ node, ...props }) => <strong className="font-bold text-blue-600 bg-blue-100/50 dark:bg-blue-900/20 px-1 rounded" {...props} />,
                     blockquote: ({ node, ...props }) => (
-                      <blockquote className="border-l-4 border-primary/30 bg-primary/5 pl-6 py-4 italic my-6 rounded-r-lg" {...props} />
+                      <blockquote className="border-l-4 border-blue-400 bg-blue-50/50 dark:bg-blue-900/10 pl-4 py-3 italic my-4 rounded-r" {...props} />
                     ),
                   }}
                 >
@@ -916,107 +1176,47 @@ function ResultsContent() {
         </Card>
       )}
 
-      {/* Enhanced Citations Section */}
+      {/* Sources & Citations */}
       {resultData.citations && resultData.citations.length > 0 && (
-        <Card className="border-0 shadow-xl bg-gradient-to-br from-card via-card to-muted/5">
-          <CardContent className="p-0">
-            {/* Header */}
-            <div className="bg-gradient-to-r from-emerald-500/10 via-blue-500/10 to-purple-500/10 p-6 border-b">
-              <h4 className="font-bold text-2xl flex items-center gap-3">
-                <div className="p-2 bg-emerald-500/10 rounded-lg">
-                  <FileText className="w-6 h-6 text-emerald-600" />
-                </div>
-                <span className="bg-gradient-to-r from-emerald-600 to-blue-600 bg-clip-text text-transparent">
-                  Sources & Citations
-                </span>
-              </h4>
-              <p className="text-muted-foreground mt-1 ml-11">
-                Authoritative sources supporting this analysis
-              </p>
-            </div>
+        <Card className="border shadow-lg">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-3">
+              <FileText className="w-5 h-5 text-primary" />
+              Sources & Citations
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
             
-            {/* Citations Grid */}
-            <div className="p-6">
-              <div className="grid gap-6">
-                {resultData.citations.map((citation: any, index: number) => (
-                  <div 
-                    key={index} 
-                    className="group relative overflow-hidden rounded-xl border-2 border-muted/30 hover:border-primary/30 transition-all duration-300 hover:shadow-lg bg-gradient-to-r from-background via-background to-muted/10"
-                  >
-                    {/* Citation Number Badge */}
-                    <div className="absolute top-4 left-4 w-12 h-12 bg-gradient-to-br from-primary to-blue-600 rounded-xl flex items-center justify-center shadow-lg">
-                      <span className="text-white font-bold text-lg">
-                        {citation.id?.replace(/\[|\]/g, '') || (index + 1)}
-                      </span>
+            <div className="space-y-4">
+              {resultData.citations.map((citation: any, index: number) => (
+                <div key={index} className="border rounded-lg p-4 hover:bg-muted/30 transition-colors">
+                  <div className="flex justify-between items-start mb-2">
+                    <div className="flex-1">
+                      <h5 className="font-semibold text-lg mb-1">{citation.title}</h5>
+                      <p className="text-muted-foreground text-sm">{citation.source}</p>
                     </div>
-                    
-                    <div className="p-6 pl-20">
-                      {/* Citation Header */}
-                      <div className="flex items-start justify-between mb-4">
-                        <div className="flex-1">
-                          <h5 className="font-bold text-xl mb-2 text-foreground group-hover:text-primary transition-colors">
-                            {citation.title}
-                          </h5>
-                          <p className="text-muted-foreground font-medium">
-                            {citation.source}
-                          </p>
-                        </div>
-                        
-                        {/* Credibility Score */}
-                        <div className="text-right">
-                          <div className="text-2xl font-bold text-primary">
-                            {citation.credibility}%
-                          </div>
-                          <div className="text-xs text-muted-foreground">
-                            Credibility
-                          </div>
-                        </div>
-                      </div>
-                      
-                      {/* Excerpt */}
-                      <div className="mb-4 p-4 bg-muted/20 rounded-lg border-l-4 border-primary/30">
-                        <p className="text-foreground/90 leading-relaxed italic">
-                          "{citation.excerpt}"
-                        </p>
-                      </div>
-                      
-                      {/* Metadata & Actions */}
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <Badge 
-                            variant="secondary" 
-                            className="bg-primary/10 text-primary border-primary/20 font-semibold"
-                          >
-                            {citation.type}
-                          </Badge>
-                          {citation.access_date && (
-                            <Badge variant="outline" className="text-xs">
-                              {citation.access_date}
-                            </Badge>
-                          )}
-                          {citation.relevance && (
-                            <span className="text-xs text-muted-foreground">
-                              Relevance: {citation.relevance}%
-                            </span>
-                          )}
-                        </div>
-                        
-                        {citation.url && (
-                          <a 
-                            href={citation.url} 
-                            target="_blank" 
-                            rel="noopener noreferrer"
-                            className="flex items-center gap-2 px-4 py-2 bg-primary/10 hover:bg-primary/20 text-primary rounded-lg transition-colors group/link"
-                          >
-                            <span className="font-medium">View Source</span>
-                            <ExternalLink className="w-4 h-4 group-hover/link:translate-x-1 transition-transform" />
-                          </a>
-                        )}
-                      </div>
-                    </div>
+                    <Badge variant="secondary">{citation.credibility}% credible</Badge>
                   </div>
-                ))}
-              </div>
+                  
+                  <blockquote className="border-l-2 border-primary pl-3 py-1 bg-muted/20 my-3">
+                    <p className="italic text-sm">"{citation.excerpt}"</p>
+                  </blockquote>
+                  
+                  <div className="flex justify-between items-center">
+                    <Badge variant="outline">{citation.type}</Badge>
+                    {citation.url && (
+                      <a 
+                        href={citation.url} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-1 text-primary hover:underline text-sm"
+                      >
+                        View Source <ExternalLink className="w-3 h-3" />
+                      </a>
+                    )}
+                  </div>
+                </div>
+              ))}
             </div>
           </CardContent>
         </Card>
@@ -1302,12 +1502,22 @@ export default function ResultsPage() {
   return (
     <div className="min-h-screen bg-background">
       <Header />
-      <main className="container mx-auto px-4 py-8">
-        <Suspense fallback={
-          <div className="flex items-center justify-center min-h-[400px]">
-            <Loader2 className="w-8 h-8 animate-spin" />
-          </div>
-        }>
+      <main className="container mx-auto px-4 py-8 max-w-4xl">
+        <div className="text-center mb-8">
+          <h1 className="text-3xl md:text-4xl font-bold tracking-tight mb-3">
+            Verification Result
+          </h1>
+          <p className="text-muted-foreground text-lg max-w-xl mx-auto">
+            Detailed AI-powered analysis of your claim, link, or image.
+          </p>
+        </div>
+        <Suspense
+          fallback={
+            <div className="flex items-center justify-center min-h-[400px]">
+              <Loader2 className="w-8 h-8 animate-spin" />
+            </div>
+          }
+        >
           <ResultsContent />
         </Suspense>
       </main>

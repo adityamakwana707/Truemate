@@ -27,6 +27,126 @@ import { useSession } from "next-auth/react"
 
 const fetcher = (url: string) => fetch(url).then((res) => res.json())
 
+function TrendingAnalysis() {
+  const { data: trendingData } = useSWR('http://localhost:5000/trending-analysis', fetcher, {
+    refreshInterval: 30000, // Refresh every 30 seconds
+  })
+  
+  const { data: streamStatus } = useSWR('http://localhost:5000/stream-status', fetcher, {
+    refreshInterval: 5000, // Refresh every 5 seconds
+  })
+
+  if (!trendingData || !streamStatus) {
+    return (
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <TrendingUp className="w-5 h-5 text-blue-500" />
+            🤖 AI Trend Detection
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="text-center py-8">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto"></div>
+            <p className="mt-4 text-muted-foreground">Analyzing emerging misinformation patterns...</p>
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  return (
+    <div className="space-y-4 mb-6">
+      {/* Stream Status */}
+      <Card className="bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20">
+        <CardHeader className="pb-4">
+          <CardTitle className="flex items-center gap-2 text-lg">
+            📡 Live Stream Monitoring
+            <Badge variant={streamStatus.success && streamStatus.monitoring_active ? "default" : "secondary"}>
+              {streamStatus.success && streamStatus.monitoring_active ? "ACTIVE" : "STANDBY"}
+            </Badge>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="text-center">
+              <div className="text-2xl font-bold text-blue-600">{streamStatus.total_claims || 0}</div>
+              <div className="text-xs text-muted-foreground">Total Claims</div>
+            </div>
+            <div className="text-center">
+              <div className="text-2xl font-bold text-green-600">{streamStatus.recent_claims_24h || 0}</div>
+              <div className="text-xs text-muted-foreground">Last 24h</div>
+            </div>
+            <div className="text-center">
+              <div className="text-2xl font-bold text-purple-600">
+                {streamStatus.ai_engine_status === 'active' ? 'ON' : 'BASIC'}
+              </div>
+              <div className="text-xs text-muted-foreground">AI Engine</div>
+            </div>
+            <div className="text-center">
+              <div className="text-2xl font-bold text-orange-600">3</div>
+              <div className="text-xs text-muted-foreground">RSS Streams</div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Trending Patterns */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <AlertTriangle className="w-5 h-5 text-red-500" />
+            🚨 Emerging Misinformation Patterns
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {trendingData.success && trendingData.trending_patterns?.length > 0 ? (
+            <div className="space-y-4">
+              {trendingData.trending_patterns.map((pattern, index) => (
+                <div key={pattern.pattern_id} className="border rounded-lg p-4">
+                  <div className="flex justify-between items-start mb-3">
+                    <div className="flex-1">
+                      <h4 className="font-semibold">Pattern #{index + 1}</h4>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        "{pattern.sample_claim.substring(0, 100)}..."
+                      </p>
+                    </div>
+                    <Badge variant={pattern.risk_level === 'high' ? 'destructive' : 'secondary'}>
+                      {pattern.risk_level} RISK
+                    </Badge>
+                  </div>
+                  <div className="grid grid-cols-3 gap-4 text-sm">
+                    <div>
+                      <span className="font-medium">{pattern.claim_count}</span>
+                      <div className="text-muted-foreground">Similar Claims</div>
+                    </div>
+                    <div>
+                      <span className="font-medium">{pattern.velocity.toFixed(1)}/hr</span>
+                      <div className="text-muted-foreground">Velocity</div>
+                    </div>
+                    <div>
+                      <span className="font-medium text-red-500">EMERGING</span>
+                      <div className="text-muted-foreground">Status</div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-8">
+              <CheckCircle className="w-12 h-12 text-green-500 mx-auto mb-4" />
+              <h3 className="font-semibold mb-2">No Concerning Trends Detected</h3>
+              <p className="text-muted-foreground">
+                AI monitoring systems haven't identified any emerging misinformation patterns in the last 24 hours.
+              </p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
 const verdictConfig = {
   true: {
     label: "True",
@@ -307,7 +427,8 @@ export default function ExplorePage() {
           </TabsContent>
 
           <TabsContent value="trending" className="mt-0">
-            <div className="grid gap-4">
+            <TrendingAnalysis />
+            <div className="grid gap-4 mt-6">
               {filteredClaims
                 ?.sort((a, b) => b.views - a.views)
                 .map((item) => (
