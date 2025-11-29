@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Header } from "@/components/header"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -23,6 +23,7 @@ import {
 } from "lucide-react"
 import useSWR from "swr"
 import Link from "next/link"
+import { useSession } from "next-auth/react"
 
 const fetcher = (url: string) => fetch(url).then((res) => res.json())
 
@@ -60,8 +61,15 @@ interface PublicClaim {
   category: string
 }
 
-function ClaimCard({ item }: { item: PublicClaim }) {
-  const [bookmarked, setBookmarked] = useState(false)
+function ClaimCard({ item, isBookmarked, onBookmarkChange }: { 
+  item: PublicClaim, 
+  isBookmarked: boolean,
+  onBookmarkChange: (verificationId: string, bookmarked: boolean) => Promise<void>
+}) {
+  const { data: session } = useSession()
+  const [bookmarked, setBookmarked] = useState(isBookmarked)
+  const [isUpdating, setIsUpdating] = useState(false)
+  
   const config = verdictConfig[item.verdict] || verdictConfig.unknown
   const Icon = config.icon
 
@@ -72,6 +80,28 @@ function ClaimCard({ item }: { item: PublicClaim }) {
     if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`
     return `${Math.floor(seconds / 86400)}d ago`
   }
+
+  const handleBookmarkToggle = async () => {
+    if (!session) {
+      // Could show a login prompt here
+      return
+    }
+
+    setIsUpdating(true)
+    try {
+      await onBookmarkChange(item.id, !bookmarked)
+      setBookmarked(!bookmarked)
+    } catch (error) {
+      console.error('Failed to update bookmark:', error)
+    } finally {
+      setIsUpdating(false)
+    }
+  }
+
+  // Update local state when prop changes (e.g., on initial load)
+  useEffect(() => {
+    setBookmarked(isBookmarked)
+  }, [isBookmarked])
 
   return (
     <Card className="group hover:border-foreground/20 transition-all">
@@ -108,7 +138,14 @@ function ClaimCard({ item }: { item: PublicClaim }) {
             Confidence: <span className="font-semibold text-foreground">{item.confidence}%</span>
           </div>
           <div className="flex items-center gap-1">
-            <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => setBookmarked(!bookmarked)}>
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              className="h-8 w-8 p-0" 
+              onClick={handleBookmarkToggle}
+              disabled={isUpdating || !session}
+              title={!session ? "Login to bookmark" : bookmarked ? "Remove bookmark" : "Add bookmark"}
+            >
               <Bookmark className={`w-4 h-4 ${bookmarked ? "fill-current text-yellow-500" : ""}`} />
             </Button>
             <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
@@ -130,8 +167,10 @@ function ClaimCard({ item }: { item: PublicClaim }) {
 }
 
 export default function ExplorePage() {
+  const { data: session } = useSession()
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedCategory, setSelectedCategory] = useState("all")
+  const [bookmarkStatuses, setBookmarkStatuses] = useState<Record<string, boolean>>({})
   
   // Build API URL with query parameters
   const apiUrl = `/api/explore?category=${selectedCategory}&search=${encodeURIComponent(searchQuery)}&sort=recent`
@@ -139,6 +178,66 @@ export default function ExplorePage() {
   
   const claims = exploreData?.verifications || []
   const stats = exploreData?.stats || { todayVerifications: 0, misinformationCount: 0, activeUsersCount: 0 }
+
+  // Fetch bookmark statuses when claims change and user is authenticated
+  useEffect(() => {
+    if (session && claims.length > 0) {
+      const verificationIds = claims.map((claim: PublicClaim) => claim.id)
+      
+      fetch('/api/bookmarks/check', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ verificationIds })
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data.bookmarked) {
+          setBookmarkStatuses(data.bookmarked)
+        }
+      })
+      .catch(error => {
+        console.error('Failed to fetch bookmark statuses:', error)
+      })
+    } else if (!session) {
+      setBookmarkStatuses({})
+    }
+  }, [session, claims])
+
+  const handleBookmarkChange = async (verificationId: string, shouldBookmark: boolean) => {
+    if (shouldBookmark) {
+      // Add bookmark
+      const response = await fetch('/api/bookmarks', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ verificationId })
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'Failed to add bookmark')
+      }
+
+      // Update local state
+      setBookmarkStatuses(prev => ({ ...prev, [verificationId]: true }))
+    } else {
+      // Remove bookmark
+      const response = await fetch(`/api/bookmarks?verificationId=${verificationId}`, {
+        method: 'DELETE'
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'Failed to remove bookmark')
+      }
+
+      // Update local state
+      setBookmarkStatuses(prev => ({ ...prev, [verificationId]: false }))
+    }
+  }
 
   const categories = ["all", "science", "politics", "health", "technology", "finance"]
 
@@ -197,7 +296,12 @@ export default function ExplorePage() {
           <TabsContent value="recent" className="mt-0">
             <div className="grid gap-4">
               {filteredClaims?.map((item) => (
-                <ClaimCard key={item.id} item={item} />
+                <ClaimCard 
+                  key={item.id} 
+                  item={item} 
+                  isBookmarked={bookmarkStatuses[item.id] || false}
+                  onBookmarkChange={handleBookmarkChange}
+                />
               ))}
             </div>
           </TabsContent>
@@ -207,7 +311,12 @@ export default function ExplorePage() {
               {filteredClaims
                 ?.sort((a, b) => b.views - a.views)
                 .map((item) => (
-                  <ClaimCard key={item.id} item={item} />
+                  <ClaimCard 
+                    key={item.id} 
+                    item={item} 
+                    isBookmarked={bookmarkStatuses[item.id] || false}
+                    onBookmarkChange={handleBookmarkChange}
+                  />
                 ))}
             </div>
           </TabsContent>

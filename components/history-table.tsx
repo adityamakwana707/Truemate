@@ -2,11 +2,12 @@
 
 import { useState } from "react"
 import useSWR from "swr"
+import Link from "next/link"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Eye } from "lucide-react"
+import { Eye, ExternalLink } from "lucide-react"
 
 interface HistoryItem {
   id: string
@@ -27,7 +28,10 @@ const verdictVariant = {
 }
 
 export function HistoryTable() {
-  const { data, isLoading } = useSWR<HistoryItem[]>("/api/history", fetcher)
+  const { data: responseData, isLoading } = useSWR("/api/history", fetcher)
+  
+  // Extract verifications array from response
+  const data = responseData?.verifications || []
   const [selectedItem, setSelectedItem] = useState<HistoryItem | null>(null)
 
   if (isLoading) {
@@ -46,8 +50,9 @@ export function HistoryTable() {
             <TableRow>
               <TableHead>Claim Summary</TableHead>
               <TableHead className="w-[100px]">Verdict</TableHead>
+              <TableHead className="w-[100px]">Confidence</TableHead>
               <TableHead className="w-[150px]">Timestamp</TableHead>
-              <TableHead className="w-[80px]">Actions</TableHead>
+              <TableHead className="w-20">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -57,13 +62,23 @@ export function HistoryTable() {
                 <TableCell>
                   <Badge variant={verdictVariant[item.verdict]}>{item.verdict}</Badge>
                 </TableCell>
+                <TableCell className="text-sm font-medium">
+                  {item.confidence}%
+                </TableCell>
                 <TableCell className="text-muted-foreground text-sm">
                   {new Date(item.timestamp).toLocaleDateString()}
                 </TableCell>
                 <TableCell>
-                  <Button variant="ghost" size="sm" onClick={() => setSelectedItem(item)}>
-                    <Eye className="w-4 h-4" />
-                  </Button>
+                  <div className="flex gap-1">
+                    <Button variant="ghost" size="sm" onClick={() => setSelectedItem(item)}>
+                      <Eye className="w-4 h-4" />
+                    </Button>
+                    <Link href={`/results?claim=${encodeURIComponent(item.claim)}&fromHistory=true`}>
+                      <Button variant="ghost" size="sm">
+                        <ExternalLink className="w-4 h-4" />
+                      </Button>
+                    </Link>
+                  </div>
                 </TableCell>
               </TableRow>
             ))}
