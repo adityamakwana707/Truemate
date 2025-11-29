@@ -24,6 +24,33 @@ export function ClaimInputCard() {
     setIsLoading(true)
 
     try {
+      // If URL is provided, use TruthMate OS style analysis
+      if (url && url.trim()) {
+        console.log('🕵️ Starting TruthMate OS URL analysis:', url)
+        
+        // Call TruthMate analysis endpoint
+        const truthmateResponse = await fetch('http://localhost:5000/truthmate-analysis', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ url: url.trim() })
+        })
+
+        const truthmateResult = await truthmateResponse.json()
+        
+        if (truthmateResponse.ok && truthmateResult.success) {
+          console.log('✅ TruthMate OS Analysis Complete:', truthmateResult)
+          
+          // Redirect with TruthMate OS analysis data
+          router.push(`/results?claim=${encodeURIComponent(url)}&truthmate=true&data=${encodeURIComponent(JSON.stringify(truthmateResult))}`)
+          return
+        } else {
+          console.warn('TruthMate OS analysis failed, falling back to standard verification')
+        }
+      }
+
+      // Standard verification for text or fallback
       const formData = new FormData()
       if (text) formData.append('text', text)
       if (url) formData.append('url', url)
