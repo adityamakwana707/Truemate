@@ -40,10 +40,10 @@ export function ClaimInputCard() {
         // Redirect to results with verification data
         const claim = text || url || 'Unknown'
         if (result.verificationId) {
-          router.push(`/results?claim=${encodeURIComponent(claim)}&verificationId=${result.verificationId}`)
+          router.push(`/results?claim=${encodeURIComponent(claim)}&verificationId=${result.verificationId}&isPublic=${isPublic}`)
         } else {
           // If no verification ID, pass the result data directly via state
-          router.push(`/results?claim=${encodeURIComponent(claim)}&data=${encodeURIComponent(JSON.stringify(result))}`)
+          router.push(`/results?claim=${encodeURIComponent(claim)}&data=${encodeURIComponent(JSON.stringify(result))}&isPublic=${isPublic}`)
         }
       } else {
         console.error('Verification failed:', result.error)
@@ -55,7 +55,7 @@ export function ClaimInputCard() {
       // Fallback to old behavior
       const claim = text || url
       if (claim) {
-        router.push(`/results?claim=${encodeURIComponent(claim)}&public=${isPublic}`)
+        router.push(`/results?claim=${encodeURIComponent(claim)}&isPublic=${isPublic}`)
       }
     } finally {
       setIsLoading(false)

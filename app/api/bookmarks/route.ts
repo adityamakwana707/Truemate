@@ -19,7 +19,16 @@ export async function GET(request: NextRequest) {
     const limit = parseInt(searchParams.get('limit') || '10')
     const offset = parseInt(searchParams.get('offset') || '0')
 
-    await connectToDatabase()
+    try {
+      await connectToDatabase()
+    } catch (dbError) {
+      console.error('Database connection failed:', dbError)
+      return NextResponse.json({
+        bookmarks: [],
+        pagination: { limit, offset, total: 0, hasMore: false },
+        message: 'Bookmarks temporarily unavailable'
+      })
+    }
 
     // Get user's bookmarks with verification details
     const bookmarks = await Bookmark.find({ userId: session.user.id })
@@ -88,7 +97,15 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    await connectToDatabase()
+    try {
+      await connectToDatabase()
+    } catch (dbError) {
+      console.error('Database connection failed:', dbError)
+      return NextResponse.json(
+        { error: 'Database temporarily unavailable' },
+        { status: 503 }
+      )
+    }
 
     // Check if verification exists and is accessible
     const verification = await Verification.findById(verificationId)
@@ -130,13 +147,16 @@ export async function POST(request: NextRequest) {
     })
 
     await bookmark.save()
+    console.log('Bookmark created:', bookmark._id.toString())
 
     // Add to verification's bookmarks array
     await Verification.findByIdAndUpdate(verificationId, {
       $addToSet: { bookmarks: session.user.id }
     })
+    console.log('Added user to verification bookmarks array')
 
     return NextResponse.json({
+      success: true,
       message: "Bookmark added successfully",
       bookmarkId: bookmark._id.toString()
     }, { status: 201 })
@@ -172,7 +192,15 @@ export async function DELETE(request: NextRequest) {
       )
     }
 
-    await connectToDatabase()
+    try {
+      await connectToDatabase()
+    } catch (dbError) {
+      console.error('Database connection failed:', dbError)
+      return NextResponse.json(
+        { error: 'Database temporarily unavailable' },
+        { status: 503 }
+      )
+    }
 
     let bookmark
     if (bookmarkId) {

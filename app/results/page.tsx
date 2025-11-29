@@ -1,7 +1,8 @@
 "use client"
 
 import { useSearchParams } from "next/navigation"
-import { Suspense } from "react"
+import { Suspense, useEffect, useState } from "react"
+import { useSession } from "next-auth/react"
 import { Header } from "@/components/header"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -16,10 +17,18 @@ import remarkGfm from 'remark-gfm'
 const fetcher = (url: string) => fetch(url).then((res) => res.json())
 
 function ResultsContent() {
+  const { data: session } = useSession()
   const searchParams = useSearchParams()
   const claim = searchParams?.get("claim") || ""
   const verificationId = searchParams?.get("verificationId") || ""
   const dataParam = searchParams?.get("data") || ""
+  const fromHistory = searchParams?.get("fromHistory") === "true"
+  const isPublicParam = searchParams?.get("isPublic")
+  const isPublic = isPublicParam === "true" || isPublicParam === null // Default to true if not specified
+  
+  const [isBookmarked, setIsBookmarked] = useState(false)
+  const [isBookmarking, setIsBookmarking] = useState(false)
+  const [savedVerificationId, setSavedVerificationId] = useState<string | null>(verificationId || null)
 
   console.log('ResultsContent - claim:', claim)
   console.log('ResultsContent - verificationId:', verificationId)
@@ -34,6 +43,48 @@ function ResultsContent() {
     }
   } catch (e) {
     console.error('Failed to parse URL data:', e)
+  }
+
+  // Function to save verification result to database
+  const saveVerificationResult = async (data: any) => {
+    if (!session?.user?.id || !data) return
+    
+    try {
+      const response = await fetch('/api/verifications', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          claim: claim,
+          claimType: 'text',
+          verdict: data.verdict?.toLowerCase() || 'unknown',
+          confidence: data.confidence || 0,
+          explanation: data.explanation || '',
+          reasoning: data.reasoning || '',
+          sourceCredibility: data.source_credibility || 0,
+          harmIndex: data.harm_index || 'low', // Let API normalize this
+          evidence: data.evidence || [],
+          category: data.category || 'other',
+          isPublic: isPublic,
+          metadata: {
+            processingTime: data.processing_time,
+            aiModel: 'python-server',
+            sourceCount: (data.evidence || []).length
+          }
+        })
+      })
+      
+      if (response.ok) {
+        const result = await response.json()
+        if (result.verification?._id) {
+          setSavedVerificationId(result.verification._id)
+        }
+        console.log('Verification result saved to database')
+      }
+    } catch (error) {
+      console.error('Failed to save verification result:', error)
+    }
   }
 
   // Ultimate working verification service
@@ -73,6 +124,116 @@ function ResultsContent() {
   const resultData = urlData || verificationData
   const isLoadingAny = isVerifying && !urlData && !verificationData
   const hasError = verificationError && !urlData
+
+  // Save verification result when data becomes available
+  useEffect(() => {
+    if (resultData && session?.user?.id) {
+      // Don't block UI if saving fails
+      saveVerificationResult(resultData).catch(err => {
+        console.warn('Failed to save verification to history, but continuing with display:', err)
+      })
+    }
+  }, [resultData, session?.user?.id])
+
+  // Check if verification is already bookmarked when component loads
+  useEffect(() => {
+    const checkBookmarkStatus = async () => {
+      if (!session?.user?.id) return
+      
+      let targetVerificationId = savedVerificationId
+      
+      // If we don't have a verification ID but we have a claim, try to find it
+      if (!targetVerificationId && claim) {
+        try {
+          const verifyResponse = await fetch('/api/verifications?search=' + encodeURIComponent(claim))
+          if (verifyResponse.ok) {
+            const verifyData = await verifyResponse.json()
+            if (verifyData.verifications && verifyData.verifications.length > 0) {
+              const matchingVerification = verifyData.verifications.find((v: any) => 
+                v.claim.toLowerCase().trim() === claim.toLowerCase().trim()
+              )
+              if (matchingVerification) {
+                targetVerificationId = matchingVerification._id
+                setSavedVerificationId(targetVerificationId)
+              }
+            }
+          }
+        } catch (error) {
+          console.error('Failed to find verification by claim:', error)
+        }
+      }
+      
+      if (!targetVerificationId) return
+      
+      try {
+        const response = await fetch('/api/bookmarks')
+        if (response.ok) {
+          const data = await response.json()
+          const bookmarks = data.bookmarks || []
+          const isAlreadyBookmarked = bookmarks.some((bookmark: any) => 
+            bookmark.verificationId?._id === targetVerificationId || 
+            bookmark.verificationId === targetVerificationId ||
+            bookmark.verificationId?.toString() === targetVerificationId
+          )
+          setIsBookmarked(isAlreadyBookmarked)
+          console.log('Bookmark status checked:', { targetVerificationId, isAlreadyBookmarked, totalBookmarks: bookmarks.length })
+        }
+      } catch (error) {
+        console.error('Failed to check bookmark status:', error)
+      }
+    }
+
+    checkBookmarkStatus()
+  }, [session?.user?.id, savedVerificationId, claim])
+
+  // Handle bookmark functionality
+  const toggleBookmark = async () => {
+    if (!session?.user?.id || !savedVerificationId) {
+      console.warn('Cannot bookmark: missing user session or verification ID')
+      return
+    }
+    
+    setIsBookmarking(true)
+    try {
+      if (isBookmarked) {
+        // Remove bookmark
+        const response = await fetch(`/api/bookmarks?verificationId=${savedVerificationId}`, {
+          method: 'DELETE'
+        })
+        if (response.ok) {
+          setIsBookmarked(false)
+          console.log('Bookmark removed successfully')
+        } else {
+          const errorData = await response.json()
+          console.error('Failed to remove bookmark:', errorData)
+        }
+      } else {
+        // Add bookmark
+        const response = await fetch('/api/bookmarks', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            verificationId: savedVerificationId,
+            notes: '',
+            tags: []
+          })
+        })
+        if (response.ok) {
+          setIsBookmarked(true)
+          console.log('Bookmark added successfully')
+        } else {
+          const errorData = await response.json()
+          console.error('Failed to add bookmark:', errorData)
+        }
+      }
+    } catch (error) {
+      console.error('Bookmark operation failed:', error)
+    } finally {
+      setIsBookmarking(false)
+    }
+  }
+
+
 
   console.log('Data status:', {
     urlData: !!urlData,
@@ -195,10 +356,22 @@ function ResultsContent() {
           </Button>
         </Link>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" className="gap-2">
-            <Bookmark className="w-4 h-4" />
-            Save
-          </Button>
+          {session?.user?.id && (savedVerificationId || resultData) && (
+            <Button 
+              variant={isBookmarked ? "default" : "outline"} 
+              size="sm" 
+              className="gap-2"
+              onClick={toggleBookmark}
+              disabled={isBookmarking || !savedVerificationId}
+            >
+              {isBookmarking ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Bookmark className={`w-4 h-4 ${isBookmarked ? 'fill-current' : ''}`} />
+              )}
+              {isBookmarked ? 'Saved' : 'Save'}
+            </Button>
+          )}
         </div>
       </div>
 

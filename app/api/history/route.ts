@@ -19,7 +19,17 @@ export async function GET(request: NextRequest) {
     const limit = parseInt(searchParams.get('limit') || '10')
     const offset = parseInt(searchParams.get('offset') || '0')
 
-    await connectToDatabase()
+    try {
+      await connectToDatabase()
+    } catch (dbError) {
+      console.error('Database connection failed:', dbError)
+      return NextResponse.json({
+        verifications: [],
+        stats: { total: 0, today: 0 },
+        pagination: { limit, offset, hasMore: false },
+        message: 'History temporarily unavailable'
+      })
+    }
 
     // Get user's verification history
     const verifications = await Verification.find({ userId: session.user.id })
