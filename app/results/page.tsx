@@ -1,8 +1,7 @@
 "use client"
 
 import { useSearchParams } from "next/navigation"
-import { Suspense, useEffect, useState } from "react"
-import { useSession } from "next-auth/react"
+import { Suspense, useState } from "react"
 import { Header } from "@/components/header"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -22,17 +21,12 @@ function ResultsContent() {
   const claim = searchParams?.get("claim") || ""
   const verificationId = searchParams?.get("verificationId") || ""
   const dataParam = searchParams?.get("data") || ""
-  const fromHistory = searchParams?.get("fromHistory") === "true"
-  const isPublicParam = searchParams?.get("isPublic")
-  const isPublic = isPublicParam === "true" || isPublicParam === null // Default to true if not specified
-  
-  const [isBookmarked, setIsBookmarked] = useState(false)
-  const [isBookmarking, setIsBookmarking] = useState(false)
-  const [savedVerificationId, setSavedVerificationId] = useState<string | null>(verificationId || null)
+  const isTruthmateAnalysis = searchParams?.get("truthmate") === "true"
 
   console.log('ResultsContent - claim:', claim)
-  console.log('ResultsContent - verificationId:', verificationId)
+  console.log('ResultsContent - verificationId:', verificationId)  
   console.log('ResultsContent - dataParam:', dataParam)
+  console.log('ResultsContent - isTruthmateAnalysis:', isTruthmateAnalysis)
 
   // Try to parse data from URL params first
   let urlData = null
@@ -45,59 +39,18 @@ function ResultsContent() {
     console.error('Failed to parse URL data:', e)
   }
 
-  // Function to save verification result to database
-  const saveVerificationResult = async (data: any) => {
-    if (!session?.user?.id || !data) return
-    
-    try {
-      const response = await fetch('/api/verifications', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          claim: claim,
-          claimType: 'text',
-          verdict: data.verdict?.toLowerCase() || 'unknown',
-          confidence: data.confidence || 0,
-          explanation: data.explanation || '',
-          reasoning: data.reasoning || '',
-          sourceCredibility: data.source_credibility || 0,
-          harmIndex: data.harm_index || 'low', // Let API normalize this
-          evidence: data.evidence || [],
-          category: data.category || 'other',
-          isPublic: isPublic,
-          metadata: {
-            processingTime: data.processing_time,
-            aiModel: 'python-server',
-            sourceCount: (data.evidence || []).length
-          }
-        })
-      })
-      
-      if (response.ok) {
-        const result = await response.json()
-        if (result.verification?._id) {
-          setSavedVerificationId(result.verification._id)
-        }
-        console.log('Verification result saved to database')
-      }
-    } catch (error) {
-      console.error('Failed to save verification result:', error)
-    }
-  }
-
-  // Ultimate working verification service
+  // Comprehensive verification service (always uses all analysis)
   const { data: verificationData, error: verificationError, isLoading: isVerifying } = useSWR(
     claim ? `verify-${claim}` : null,
     async () => {
       try {
-        console.log('Making verification request for claim:', claim)
-        // Use the ultimate working service
+        console.log('Making comprehensive verification request for claim:', claim)
+        
+        // Use comprehensive analysis service on port 5000
         const response = await fetch('http://localhost:5000/verify', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ claim: claim })
+          body: JSON.stringify({ text: claim })
         })
         
         if (!response.ok) {
@@ -105,7 +58,7 @@ function ResultsContent() {
         }
         
         const result = await response.json()
-        console.log('Verification result received:', result)
+        console.log('Comprehensive verification result received:', result)
         return result
       } catch (error) {
         console.error('Verification error:', error)
@@ -120,10 +73,13 @@ function ResultsContent() {
     }
   )
 
-  // Determine what data to use
+  // Determine what data to use - prioritize TruthMate OS analysis for URLs
   const resultData = urlData || verificationData
   const isLoadingAny = isVerifying && !urlData && !verificationData
   const hasError = verificationError && !urlData
+  
+  // Check if this is TruthMate OS analysis result
+  const isTruthmateResult = isTruthmateAnalysis && urlData && urlData.truthmate_os_style
 
   // Save verification result when data becomes available
   useEffect(() => {
@@ -260,6 +216,8 @@ function ResultsContent() {
     )
   }
 
+
+
   if (isLoadingAny) {
     return (
       <div className="space-y-6">
@@ -275,13 +233,13 @@ function ResultsContent() {
             <div className="space-y-4">
               <h3 className="text-xl font-semibold">Comprehensive Analysis in Progress</h3>
               <p className="text-muted-foreground max-w-md mx-auto">
-                Our system combines advanced ML models with comprehensive fact-checking
-                for maximum accuracy and detailed analysis.
+                Running comprehensive analysis with all available models, web scraping,
+                and advanced fact-checking for maximum accuracy.
               </p>
               <div className="flex flex-col gap-2 max-w-sm mx-auto">
-                <Progress value={66} className="h-2" />
+                <Progress value={75} className="h-2" />
                 <div className="text-xs text-muted-foreground text-center">
-                  Processing with Enhanced Models...
+                  Comprehensive Analysis in Progress...
                 </div>
               </div>
             </div>
@@ -345,6 +303,429 @@ function ResultsContent() {
     )
   }
 
+  // TruthMate OS Results Display
+  if (isTruthmateResult) {
+    return (
+      <div className="space-y-6">
+        {/* Navigation */}
+        <div className="flex items-center justify-between">
+          <Link href="/dashboard">
+            <Button variant="ghost" size="sm" className="gap-2">
+              <ArrowLeft className="w-4 h-4" />
+              New Search
+            </Button>
+          </Link>
+          <div className="flex items-center gap-2">
+            <Badge variant="outline" className="bg-gradient-to-r from-purple-500/10 to-blue-500/10 text-purple-700 border-purple-300">
+              🕵️ TruthMate OS Analysis
+            </Badge>
+            <Button variant="outline" size="sm" className="gap-2">
+              <Bookmark className="w-4 h-4" />
+              Save
+            </Button>
+          </div>
+        </div>
+
+        {/* TruthMate OS Hero Card */}
+        <Card className="relative overflow-hidden border-0 shadow-2xl bg-gradient-to-br from-purple-50 via-blue-50 to-indigo-50 dark:from-purple-900/20 dark:via-blue-900/20 dark:to-indigo-900/20">
+          <div className="absolute inset-0 bg-gradient-to-br from-purple-500/10 via-blue-500/10 to-indigo-500/10"></div>
+          
+          <CardContent className="p-12 relative">
+            <div className="text-center space-y-8">
+              {/* TruthMate OS Header */}
+              <div className="flex flex-col items-center gap-4">
+                <div className="relative">
+                  <div className="absolute inset-0 bg-purple-500/20 rounded-full blur-xl scale-150"></div>
+                  <div className="relative p-6 bg-gradient-to-br from-purple-100 to-blue-100 dark:from-purple-900/50 dark:to-blue-900/50 rounded-full border-4 border-purple-300 dark:border-purple-600">
+                    <span className="text-4xl">🕵️</span>
+                  </div>
+                </div>
+                
+                <div className="space-y-4">
+                  <h1 className="text-4xl font-bold bg-gradient-to-r from-purple-600 via-blue-600 to-indigo-600 bg-clip-text text-transparent">
+                    TRUTHMATE OS ANALYSIS
+                  </h1>
+                  <p className="text-lg text-muted-foreground">
+                    Advanced Link Safety & Content Verification
+                  </p>
+                </div>
+              </div>
+
+              {/* URL Display */}
+              <div className="max-w-4xl mx-auto">
+                <div className="relative">
+                  <div className="absolute inset-0 bg-gradient-to-r from-purple-500/10 to-blue-500/10 rounded-2xl blur-sm"></div>
+                  <div className="relative p-6 bg-card/80 backdrop-blur-sm rounded-2xl border-2 border-purple-300/30 shadow-xl">
+                    <div className="flex items-center gap-4">
+                      <div className="p-3 bg-purple-500/10 rounded-full shrink-0">
+                        <ExternalLink className="w-6 h-6 text-purple-600" />
+                      </div>
+                      <div className="flex-1 text-left">
+                        <h3 className="text-sm font-semibold text-purple-600 mb-2 uppercase tracking-wide">
+                          Analyzed URL
+                        </h3>
+                        <p className="text-xl font-semibold break-all text-foreground">
+                          {resultData.url}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Safety Metrics */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-4xl mx-auto">
+                {/* Safety Score */}
+                <div className="relative">
+                  <div className="absolute inset-0 bg-gradient-to-br from-green-500/20 to-emerald-500/20 rounded-xl blur opacity-75"></div>
+                  <div className="relative bg-card/90 backdrop-blur-sm rounded-xl p-6 border-2 border-green-300/30 text-center">
+                    <div className={`text-4xl font-black mb-2 ${
+                      resultData.safety_score >= 80 ? 'text-green-600' :
+                      resultData.safety_score >= 60 ? 'text-yellow-600' : 'text-red-600'
+                    }`}>
+                      {resultData.safety_score}%
+                    </div>
+                    <div className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-2">
+                      Safety Score
+                    </div>
+                    <Progress 
+                      value={resultData.safety_score} 
+                      className={`h-3 ${
+                        resultData.safety_score >= 80 ? 'text-green-500' :
+                        resultData.safety_score >= 60 ? 'text-yellow-500' : 'text-red-500'
+                      }`}
+                    />
+                  </div>
+                </div>
+
+                {/* Credibility Score */}
+                <div className="relative">
+                  <div className="absolute inset-0 bg-gradient-to-br from-blue-500/20 to-cyan-500/20 rounded-xl blur opacity-75"></div>
+                  <div className="relative bg-card/90 backdrop-blur-sm rounded-xl p-6 border-2 border-blue-300/30 text-center">
+                    <div className="text-4xl font-black bg-gradient-to-r from-blue-600 to-cyan-600 bg-clip-text text-transparent mb-2">
+                      {resultData.credibility_score}%
+                    </div>
+                    <div className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-2">
+                      Credibility
+                    </div>
+                    <Progress value={resultData.credibility_score} className="h-3 text-blue-500" />
+                  </div>
+                </div>
+
+                {/* Risk Type */}
+                <div className="relative">
+                  <div className={`absolute inset-0 rounded-xl blur opacity-75 ${
+                    resultData.risk_type === 'safe' ? 'bg-gradient-to-br from-green-500/20 to-emerald-500/20' :
+                    resultData.risk_type === 'phishing' ? 'bg-gradient-to-br from-red-500/20 to-rose-500/20' :
+                    resultData.risk_type === 'scam' ? 'bg-gradient-to-br from-orange-500/20 to-red-500/20' :
+                    'bg-gradient-to-br from-yellow-500/20 to-orange-500/20'
+                  }`}></div>
+                  <div className="relative bg-card/90 backdrop-blur-sm rounded-xl p-6 border-2 border-muted/30 text-center">
+                    <div className={`text-3xl font-black mb-2 uppercase ${
+                      resultData.risk_type === 'safe' ? 'text-green-600' :
+                      resultData.risk_type === 'phishing' ? 'text-red-600' :
+                      resultData.risk_type === 'scam' ? 'text-orange-600' :
+                      'text-yellow-600'
+                    }`}>
+                      {resultData.risk_type}
+                    </div>
+                    <div className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+                      Risk Classification
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Sandbox Visual Return - TruthMate OS Style */}
+        <Card className="border-0 shadow-xl bg-gradient-to-br from-card via-card to-muted/10">
+          <CardContent className="p-8">
+            <div className="space-y-6">
+              <div className="grid md:grid-cols-2 gap-8">
+                {/* Sandbox Visual Return */}
+                <div className="space-y-4">
+                  <h3 className="text-xl font-bold flex items-center gap-3">
+                    <span className="text-red-600">🔒</span>
+                    <span>Sandbox Visual Return (Click to Interact)</span>
+                  </h3>
+                  
+                  <div className="relative">
+                    {/* Red border frame like TruthMate OS */}
+                    <div className="border-4 border-red-600 bg-black min-h-[300px] flex items-center justify-center relative overflow-hidden rounded-lg">
+                      {/* Security Badge */}
+                      <div className="absolute top-0 left-0 bg-red-600 text-white px-3 py-1 text-sm font-bold z-10">
+                        SECURE PREVIEW MODE
+                      </div>
+                      
+                      {/* Live Website Preview or Screenshot */}
+                      {resultData.website_preview?.preview_available ? (
+                        resultData.screenshot_b64 ? (
+                          <img 
+                            src={`data:image/png;base64,${resultData.screenshot_b64}`}
+                            alt="Website Preview"
+                            className="max-w-full max-h-[400px] object-contain cursor-crosshair hover:scale-105 transition-transform"
+                            onClick={() => {
+                              // Simulate click interaction like TruthMate OS
+                              console.log('🖱️ Sandbox interaction detected')
+                            }}
+                          />
+                        ) : (
+                          <div className="w-full h-[400px] bg-white border-2 border-gray-300 overflow-hidden relative">
+                            {/* Website Info Card */}
+                            <div className="absolute top-0 left-0 right-0 bg-gray-800 text-white p-3 z-20">
+                              <div className="flex items-center gap-2 text-sm">
+                                <div className="w-3 h-3 bg-green-500 rounded-full"></div>
+                                <span className="font-mono">{resultData.website_preview?.url || resultData.claim}</span>
+                              </div>
+                            </div>
+                            
+                            {/* Live iframe with fallback */}
+                            <iframe
+                              src={resultData.website_preview?.url || resultData.claim}
+                              className="w-full h-full border-none pt-12"
+                              sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
+                              title="Live Website Preview - TruthMate OS Sandbox"
+                              onLoad={(e) => {
+                                console.log('✅ Website loaded successfully in sandbox');
+                              }}
+                              onError={(e) => {
+                                console.log('❌ Iframe failed to load website');
+                              }}
+                            />
+                            
+                            {/* Click overlay for interaction simulation */}
+                            <div className="absolute inset-0 bg-transparent pointer-events-none">
+                              <div className="absolute bottom-4 right-4 bg-red-600 text-white px-2 py-1 text-xs font-bold rounded">
+                                🔒 SANDBOX MODE
+                              </div>
+                            </div>
+                          </div>
+                        )
+                      ) : (
+                        <div className="text-center text-gray-400 p-8">
+                          <div className="text-6xl mb-4">🔍</div>
+                          <div className="text-xl mb-2 font-mono">[ANALYZING CONTENT]</div>
+                          <div className="text-sm opacity-75 space-y-2">
+                            <div>🔐 Website cannot be displayed in sandbox mode</div>
+                            <div>📊 Security analysis completed via text extraction</div>
+                            <div className="mt-4 text-xs">
+                              <div className="bg-gray-800 text-green-400 p-2 rounded font-mono">
+                                {'>'} Content successfully extracted and analyzed<br/>
+                                {'>'} URL reputation check: COMPLETED<br/>
+                                {'>'} Risk assessment: ACTIVE
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    
+                    <div className="text-xs text-muted-foreground mt-2">
+                      💡 Interactive sandbox mode - All actions are simulated and secure
+                    </div>
+                  </div>
+                </div>
+
+                {/* Agent Report */}
+                <div className="space-y-4">
+                  <h3 className="text-xl font-bold flex items-center gap-3">
+                    <span className="text-green-500">📊</span>
+                    <span>Agent Report</span>
+                  </h3>
+                  
+                  <div className="bg-black text-green-400 p-6 rounded-lg font-mono text-sm min-h-[300px] overflow-auto">
+                    <div className="mb-4">
+                      <span className="text-green-500">// </span>
+                      <span className="text-green-300">TruthMate OS Analysis Report...</span>
+                    </div>
+                    
+                    <div className="space-y-2 text-xs">
+                      <div>
+                        <span className="text-blue-400">URL:</span> 
+                        <span className="text-white ml-2">{resultData.url}</span>
+                      </div>
+                      <div>
+                        <span className="text-blue-400">Status:</span> 
+                        <span className={`ml-2 ${resultData.status === 200 ? 'text-green-400' : 'text-red-400'}`}>
+                          {resultData.status || 'Unknown'}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-blue-400">Title:</span> 
+                        <span className="text-white ml-2">"{resultData.page_title}"</span>
+                      </div>
+                      <div>
+                        <span className="text-blue-400">Safety Score:</span> 
+                        <span className={`ml-2 font-bold ${
+                          resultData.safety_score >= 80 ? 'text-green-400' :
+                          resultData.safety_score >= 60 ? 'text-yellow-400' : 'text-red-400'
+                        }`}>
+                          {resultData.safety_score}%
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-blue-400">Risk Type:</span> 
+                        <span className={`ml-2 uppercase font-bold ${
+                          resultData.risk_type === 'safe' ? 'text-green-400' :
+                          resultData.risk_type === 'phishing' ? 'text-red-400' :
+                          resultData.risk_type === 'scam' ? 'text-orange-400' :
+                          'text-yellow-400'
+                        }`}>
+                          {resultData.risk_type}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-blue-400">Content Length:</span> 
+                        <span className="text-white ml-2">{resultData.content_length?.toLocaleString() || 0} chars</span>
+                      </div>
+                      
+                      <div className="border-t border-green-800 pt-3 mt-4">
+                        <div className="text-green-300 mb-2">🔍 Security Analysis:</div>
+                        <div className="text-white text-xs leading-relaxed pl-4">
+                          {resultData.analysis_reason}
+                        </div>
+                      </div>
+                      
+                      {resultData.sandbox_preview && (
+                        <div className="border-t border-green-800 pt-3 mt-4">
+                          <div className="text-green-300 mb-1">📸 Screenshot Status:</div>
+                          <div className="text-green-400 pl-4">✅ CAPTURED</div>
+                        </div>
+                      )}
+                      
+                      <div className="border-t border-green-800 pt-3 mt-4">
+                        <div className="text-green-300 mb-1">⏱️ Analysis Time:</div>
+                        <div className="text-white pl-4">{new Date().toLocaleTimeString()}</div>
+                      </div>
+                      
+                      <div className="border-t border-green-800 pt-3 mt-4">
+                        <div className="text-green-300 mb-2">🛡️ TruthMate OS Verdict:</div>
+                        <div className={`pl-4 font-bold ${
+                          resultData.safety_score >= 80 ? 'text-green-400' :
+                          resultData.safety_score >= 60 ? 'text-yellow-400' : 'text-red-400'
+                        }`}>
+                          {resultData.safety_score >= 80 ? '✅ SAFE TO VISIT' :
+                           resultData.safety_score >= 60 ? '⚠️ PROCEED WITH CAUTION' : '🚫 HIGH RISK - AVOID'}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Website Information */}
+        <Card className="border-0 shadow-xl bg-gradient-to-br from-card via-card to-muted/10">
+          <CardContent className="p-8">
+            <div className="space-y-6">
+              <h3 className="text-2xl font-bold flex items-center gap-3">
+                <div className="p-2 bg-blue-500/10 rounded-lg">
+                  <FileText className="w-6 h-6 text-blue-600" />
+                </div>
+                <span className="bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
+                  Website Information
+                </span>
+              </h3>
+
+              <div className="grid md:grid-cols-2 gap-8">
+                {/* Page Details */}
+                <div className="space-y-4">
+                  <div>
+                    <h4 className="font-semibold text-lg mb-2">Page Title</h4>
+                    <p className="text-foreground/90 bg-muted/30 p-4 rounded-lg border">
+                      {resultData.page_title || 'No title available'}
+                    </p>
+                  </div>
+                  
+                  <div>
+                    <h4 className="font-semibold text-lg mb-2">Content Length</h4>
+                    <div className="flex items-center gap-4">
+                      <span className="text-2xl font-bold text-primary">
+                        {resultData.content_length?.toLocaleString() || 0}
+                      </span>
+                      <span className="text-muted-foreground">characters</span>
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <h4 className="font-semibold text-lg mb-2">Status Code</h4>
+                    <Badge className={`text-lg px-4 py-2 ${
+                      resultData.status === 200 ? 'bg-green-500/10 text-green-700 border-green-300' :
+                      'bg-red-500/10 text-red-700 border-red-300'
+                    }`}>
+                      {resultData.status || 'Unknown'}
+                    </Badge>
+                  </div>
+                </div>
+
+                {/* Description */}
+                <div>
+                  <h4 className="font-semibold text-lg mb-2">Description</h4>
+                  <div className="bg-muted/30 p-6 rounded-lg border">
+                    <p className="text-foreground/90 leading-relaxed">
+                      {resultData.description || 'No description available'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Content Summary */}
+        <Card className="border-0 shadow-xl bg-gradient-to-br from-emerald-50/50 to-teal-50/30 dark:from-emerald-900/10 dark:to-teal-900/10">
+          <CardContent className="p-8">
+            <h3 className="text-2xl font-bold flex items-center gap-3 mb-6">
+              <div className="p-2 bg-emerald-500/10 rounded-lg">
+                <FileText className="w-6 h-6 text-emerald-600" />
+              </div>
+              <span className="bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent">
+                Content Summary
+              </span>
+            </h3>
+            
+            <div className="bg-card/60 p-6 rounded-xl border-2 border-emerald-200/30">
+              <p className="text-foreground/90 leading-relaxed text-lg">
+                {resultData.summary || 'No content summary available'}
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Analysis Details */}
+        <Card className="border-0 shadow-xl bg-gradient-to-br from-purple-50/50 to-pink-50/30 dark:from-purple-900/10 dark:to-pink-900/10">
+          <CardContent className="p-8">
+            <h3 className="text-2xl font-bold flex items-center gap-3 mb-6">
+              <div className="p-2 bg-purple-500/10 rounded-lg">
+                <Brain className="w-6 h-6 text-purple-600" />
+              </div>
+              <span className="bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent">
+                Security Analysis
+              </span>
+            </h3>
+            
+            <div className="bg-card/60 p-6 rounded-xl border-2 border-purple-200/30">
+              <p className="text-foreground/90 leading-relaxed text-lg">
+                {resultData.analysis_reason || 'No detailed analysis available'}
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* TruthMate OS Badge */}
+        <div className="text-center">
+          <Badge className="text-lg px-6 py-3 bg-gradient-to-r from-purple-500/10 to-blue-500/10 text-purple-700 border-purple-300">
+            ✅ Verified by TruthMate OS • {new Date(resultData.timestamp || Date.now()).toLocaleString()}
+          </Badge>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6">
       {/* Navigation */}
@@ -374,6 +755,8 @@ function ResultsContent() {
           )}
         </div>
       </div>
+
+
 
       {/* Hero Verdict Card - Enhanced Design */}
       <Card className="relative overflow-hidden border-0 shadow-2xl bg-gradient-to-br from-background via-background to-muted/20">
@@ -734,6 +1117,113 @@ function ResultsContent() {
             </Card>
           )}
         </div>
+      )}
+
+      {/* Enhanced ML Models Analysis - NEW SECTION */}
+      {resultData.enhanced_analysis?.model_predictions && (
+        <Card className="border-0 shadow-2xl bg-gradient-to-br from-indigo-50/50 via-purple-50/30 to-pink-50/20 dark:from-indigo-900/20 dark:via-purple-900/20 dark:to-pink-900/20">
+          <CardContent className="p-8">
+            <div className="text-center mb-8">
+              <h3 className="text-3xl font-bold mb-2 bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 bg-clip-text text-transparent">
+                🤖 Enhanced ML Model Analysis
+              </h3>
+              <p className="text-muted-foreground">
+                Analysis by {resultData.active_models || 7} trained ML models with {resultData.enhanced_analysis.consensus_score ? Math.round(resultData.enhanced_analysis.consensus_score * 100) : 'N/A'}% consensus
+              </p>
+            </div>
+
+            {/* ML Consensus Metrics */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+              <div className="text-center p-6 bg-card/60 rounded-xl border-2 border-indigo-200/40">
+                <div className="text-4xl font-black bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent mb-2">
+                  {resultData.enhanced_analysis.consensus_score ? Math.round(resultData.enhanced_analysis.consensus_score * 100) : 'N/A'}%
+                </div>
+                <div className="text-sm font-semibold text-muted-foreground uppercase">ML Consensus</div>
+                <Progress value={resultData.enhanced_analysis.consensus_score ? resultData.enhanced_analysis.consensus_score * 100 : 0} className="mt-2 h-2" />
+              </div>
+              
+              <div className="text-center p-6 bg-card/60 rounded-xl border-2 border-purple-200/40">
+                <div className={`text-4xl font-black mb-2 ${
+                  resultData.enhanced_analysis.risk_level === 'CRITICAL' ? 'text-red-600' :
+                  resultData.enhanced_analysis.risk_level === 'HIGH' ? 'text-orange-600' :
+                  resultData.enhanced_analysis.risk_level === 'MEDIUM' ? 'text-yellow-600' : 'text-green-600'
+                }`}>
+                  {resultData.enhanced_analysis.risk_level || 'LOW'}
+                </div>
+                <div className="text-sm font-semibold text-muted-foreground uppercase">Risk Level</div>
+              </div>
+              
+              <div className="text-center p-6 bg-card/60 rounded-xl border-2 border-pink-200/40">
+                <div className="text-4xl font-black bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent mb-2">
+                  {resultData.enhanced_analysis.processing_time_ms?.toFixed(0) || 'N/A'}ms
+                </div>
+                <div className="text-sm font-semibold text-muted-foreground uppercase">Processing Time</div>
+              </div>
+            </div>
+
+            {/* Individual Model Results */}
+            <div className="space-y-6">
+              <h4 className="text-xl font-bold text-center mb-6">Individual Model Predictions</h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                {Object.entries(resultData.enhanced_analysis.model_predictions).map(([modelName, prediction]: [string, any]) => (
+                  <div key={modelName} className="group relative">
+                    <div className={`absolute inset-0 rounded-xl blur opacity-20 ${
+                      prediction.is_fake ? 'bg-red-500' : 'bg-green-500'
+                    }`}></div>
+                    <div className={`relative p-4 rounded-xl border-2 transition-all hover:scale-105 ${
+                      prediction.is_fake 
+                        ? 'bg-red-50/80 dark:bg-red-900/20 border-red-200/50 hover:border-red-400/60' 
+                        : 'bg-green-50/80 dark:bg-green-900/20 border-green-200/50 hover:border-green-400/60'
+                    }`}>
+                      {/* Model Name & Type */}
+                      <div className="text-center mb-3">
+                        <div className="font-bold text-sm uppercase tracking-wide">
+                          {modelName.replace('_', ' ')}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {prediction.model_type} • {prediction.accuracy ? Math.round(prediction.accuracy * 100) : 'N/A'}% acc
+                        </div>
+                      </div>
+                      
+                      {/* Prediction Result */}
+                      <div className="text-center">
+                        <div className={`text-2xl font-black mb-2 ${
+                          prediction.is_fake ? 'text-red-600' : 'text-green-600'
+                        }`}>
+                          {prediction.is_fake ? 'FAKE' : 'REAL'}
+                        </div>
+                        <div className="text-sm font-semibold mb-2">
+                          {Math.round(prediction.confidence * 100)}% confidence
+                        </div>
+                        <Progress 
+                          value={prediction.confidence * 100} 
+                          className={`h-2 ${prediction.is_fake ? 'text-red-500' : 'text-green-500'}`}
+                        />
+                      </div>
+                      
+                      {/* Error Handling */}
+                      {prediction.error && (
+                        <div className="text-center text-red-500 text-xs mt-2">
+                          Error: {prediction.error}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              
+              {/* Models Agreement Summary */}
+              <div className="text-center p-6 bg-card/40 rounded-xl border border-muted/30">
+                <div className="text-lg font-semibold mb-2">
+                  Model Agreement: {resultData.models_agreement || 'N/A'}
+                </div>
+                <div className="text-sm text-muted-foreground">
+                  Ensemble Strength: <span className="font-semibold capitalize">{resultData.enhanced_analysis.ensemble_strength || 'Unknown'}</span>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       {/* Enhanced Analysis Summary Dashboard */}

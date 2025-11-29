@@ -12,7 +12,7 @@ export interface VerificationResponse {
   timestamp: string
   claim: string
   extractedClaim?: string
-  verdict: 'True' | 'False' | 'Misleading' | 'Unknown'
+  verdict: 'True' | 'False' | 'Misleading' | 'Unknown' | 'fake' | 'real' | 'mixed'
   confidence: number
   explanation: string
   reasoning: string
@@ -24,6 +24,32 @@ export interface VerificationResponse {
   emotion: string
   imageAnalysis?: ImageAnalysis
   metadata: VerificationMetadata
+  
+  // Enhanced ML Analysis Fields
+  enhanced_analysis?: {
+    consensus_score: number
+    risk_level: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
+    ensemble_strength: 'weak' | 'moderate' | 'strong'
+    processing_time_ms: number
+    model_predictions: Record<string, ModelPrediction>
+  }
+  
+  // Model performance data
+  models_agreement?: string
+  active_models?: number
+  model_loaded?: boolean
+}
+
+export interface ModelPrediction {
+  prediction: number
+  is_fake: boolean
+  confidence: number
+  fake_probability: number
+  real_probability: number
+  model_type: string
+  accuracy: number
+  error?: string
+  status?: string
 }
 
 export interface EvidenceItem {
@@ -152,6 +178,25 @@ export class TruthMateAPI {
     return this.request('/models/generate-explanation', {
       method: 'POST',
       body: JSON.stringify(data)
+    })
+  }
+
+  // Enhanced ML Analysis Methods
+  async enhancedAnalysis(text: string) {
+    return this.request('/enhanced-analysis', {
+      method: 'POST',
+      body: JSON.stringify({ text })
+    })
+  }
+
+  async getModelsStatus() {
+    return this.request('/models/status')
+  }
+
+  async comprehensiveVerification(text: string) {
+    return this.request('/verify', {
+      method: 'POST',
+      body: JSON.stringify({ text })
     })
   }
 
